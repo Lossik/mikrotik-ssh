@@ -8,14 +8,10 @@
 
 namespace Lossik\Device\Mikrotik\SSH;
 
+const SSH_IMPOSSIBLE_CONNECT = 1;
 
 class Exception extends \Exception
 {
-
-
-	const NO_CONNECTION = 1;
-	const NO_LOGIN      = 2;
-
 
 	public function setMessage($message)
 	{

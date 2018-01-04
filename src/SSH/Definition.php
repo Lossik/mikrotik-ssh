@@ -53,7 +53,7 @@ class Definition implements IDefinition
 	{
 		$socket = ssh2_connect($ip, $options->port);
 		if (!is_resource($socket)) {
-			throw new Exception('Cant create connection. ' . $ip, Exception::NO_CONNECTION);
+			throw new Exception('Cant create connection. ' . $ip, SSH_IMPOSSIBLE_CONNECT);
 		}
 
 		return $socket;
