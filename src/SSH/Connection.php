@@ -2,24 +2,19 @@
 
 namespace Lossik\Device\Mikrotik\SSH;
 
+use phpseclib\Net\SSH2;
 
+/**
+ * @property SSH2 $socket
+ */
 class Connection extends \Lossik\Device\Communication\Connection
 {
-
-
-	protected $shell;
 
 
 	public function __construct(Options $options = null)
 	{
 		$options = $options ?: new Options();
 		parent::__construct($options, new Definition());
-	}
-
-
-	public function getSocket()
-	{
-		return $this->socket;
 	}
 
 
@@ -34,8 +29,12 @@ class Connection extends \Lossik\Device\Communication\Connection
 
 	public function isConnected()
 	{
-		return $this->socket->isConnected();
+		return $this->hasSocket()?$this->socket->isConnected():false;
 	}
 
+	public function hasSocket()
+	{
+		return (bool) $this->socket;
+	}
 
 }
