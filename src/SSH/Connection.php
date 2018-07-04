@@ -1,10 +1,9 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace Lossik\Device\Mikrotik\SSH;
 
-use Lossik\Device\Communication\Connection as CommConnection;
 
-class Connection extends CommConnection
+class Connection extends \Lossik\Device\Communication\Connection
 {
 
 
@@ -26,10 +25,17 @@ class Connection extends CommConnection
 
 	public function disconnect()
 	{
-		if (is_resource($this->socket)) {
-			unset($this->socket);
+		if ($this->socket) {
+			$this->socket->disconnect();
 			$this->socket = null;
 		}
 	}
+
+
+	public function isConnected()
+	{
+		return $this->socket->isConnected();
+	}
+
 
 }

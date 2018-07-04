@@ -1,10 +1,4 @@
-<?php
-/**
- * Created by PhpStorm.
- * User: Losse
- * Date: 21.06.2017
- * Time: 12:10
- */
+<?php declare(strict_types=1);
 
 namespace Lossik\Device\Mikrotik\SSH;
 

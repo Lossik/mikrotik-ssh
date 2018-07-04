@@ -1,60 +1,55 @@
-<?php
+<?php declare(strict_types=1);
 
 
 namespace Lossik\Device\Mikrotik\SSH;
 
 
 use Lossik\Device\Communication\IDefinition;
+use phpseclib\Net\SSH2;
 
 class Definition implements IDefinition
 {
 
 
+	/**
+	 * @param SSH2 $socket
+	 * @param $login
+	 * @param $password
+	 * @return bool
+	 */
 	public function login($socket, $login, $password)
 	{
 		if ($password) {
-			$loget = @ssh2_auth_password($socket, $login, $password) === true;
+			$loget = $socket->login($login, $password) === true;
 		}
 		else {
-			$loget = @ssh2_auth_none($socket, $login) === true;
+			$loget = $socket->login($login) === true;
 		}
 
 		return $loget;
 	}
 
 
+	/**
+	 * @param SSH2 $socket
+	 * @param $com
+	 * @param array $arr
+	 * @return mixed
+	 */
 	public function comm($socket, $com, $arr = [])
 	{
+		$result = '';
+		$socket->exec($com, function ($out) use (& $result){
+			$result .= $out;
+		});
 
-		$stream = $this->write($socket, $com);
-		$return = $this->read($stream);
-
-		return $return;
-	}
-
-
-	protected function write($socket, $command, $param2 = true)
-	{
-
-		$stream = ssh2_exec($socket, $command);
-		stream_set_blocking($stream, true);
-
-		return $stream;
-	}
-
-
-	protected function read($socket, $loged = true, $parse = true)
-	{
-		return stream_get_contents($socket);
+		return $result;
 	}
 
 
 	public function socket($options, $ip)
 	{
-		$socket = ssh2_connect($ip, $options->port);
-		if (!is_resource($socket)) {
-			throw new Exception('Cant create connection. ' . $ip, SSH_IMPOSSIBLE_CONNECT);
-		}
+		$socket = new SSH2($ip, $options->port, 3);
 
 		return $socket;
 	}
