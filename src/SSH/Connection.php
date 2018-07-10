@@ -2,6 +2,7 @@
 
 namespace Lossik\Device\Mikrotik\SSH;
 
+use Lossik\Device\Communication\ICommand;
 use phpseclib\Net\SSH2;
 
 /**
@@ -35,6 +36,18 @@ class Connection extends \Lossik\Device\Communication\Connection
 	public function hasSocket()
 	{
 		return (bool) $this->socket;
+	}
+
+	/**
+	 * @param string $menu
+	 * @return ICommand
+	 */
+	public function Command($menu): ICommand
+	{
+		$command = new Command($menu);
+		$command->setConnection($this);
+
+		return $command;
 	}
 
 }

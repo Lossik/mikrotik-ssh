@@ -2,6 +2,8 @@
 
 namespace Lossik\Device\Mikrotik\SFTP;
 
+use Lossik\Device\Communication\ICommand;
+use Lossik\Device\Communication\LogicException;
 use Lossik\Device\Mikrotik\SSH;
 use phpseclib\Net\SFTP;
 
@@ -12,7 +14,7 @@ class Connection extends SSH\Connection
 {
 
 
-	public function __construct(Options $options = null)
+	public function __construct(SSH\Options $options = null)
 	{
 		$this->options    = $options ?? new SSH\Options();
 		$this->definition = new Definition();
@@ -24,9 +26,15 @@ class Connection extends SSH\Connection
 	}
 
 
-	function downloadfile($remote, $local = false)
+	public function downloadfile($remote, $local = false)
 	{
 		return $this->socket->get($remote, $local);
+	}
+
+
+	public function Command($menu): ICommand
+	{
+		throw new LogicException();
 	}
 
 }
