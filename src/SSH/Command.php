@@ -17,7 +17,6 @@ class Command extends \Lossik\Device\Communication\Command
 	public function command($com, array $arr = [])
 	{
 		$com = str_replace(['%menu%', '%arr%'], [$this->menu[0] === '/' ? $this->menu : '/' . $this->menu, $this->arrayToString($arr)], $com);
-
 		return $this->connection->comm($com);
 	}
 
@@ -30,10 +29,18 @@ class Command extends \Lossik\Device\Communication\Command
 		$result = [];
 		foreach ($arr as $key => $value) {
 			if (is_numeric($key)) {
+				$value = strpos($value, ' ') === false ? $value : "\"$value\"";
 				$result[] = $value;
 			}
 			else {
-				$result[] = $key . '=' . $value;
+				if(strpos($value,'~') === 0){
+					$value = str_replace('~','',$value);
+					$value = strpos($value, ' ') === false ? $value : "\"$value\"";
+					$result[] = $key . '~' . $value;
+				}else{
+					$value = strpos($value, ' ') === false ? $value : "\"$value\"";
+					$result[] = $key . '=' . $value;
+				}
 			}
 		}
 
@@ -76,6 +83,10 @@ class Command extends \Lossik\Device\Communication\Command
 			else {
 				$current[] = $key_value[0];
 			}
+		}
+
+		if ($filterCallback) {
+			$result = array_filter($result, $filterCallback);
 		}
 
 		return $result;
