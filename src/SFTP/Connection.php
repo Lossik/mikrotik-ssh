@@ -14,7 +14,7 @@ class Connection extends SSH\Connection
 {
 
 
-	public function __construct(SSH\Options $options = null)
+	public function __construct(?SSH\Options $options = null)
 	{
 		$this->options    = $options ?? new SSH\Options();
 		$this->definition = new Definition();
