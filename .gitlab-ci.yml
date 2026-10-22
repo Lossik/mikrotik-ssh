@@ -1,6 +1,10 @@
+# Until lossik/device-communication 3.0.0 is released, tools/ci.sh clones its branch DC_REF (step 3).
 unit:
   image: $PHP_IMAGE
   timeout: 15m
+  variables:
+    DC_REF: feature/3.0
+    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   parallel:
     matrix:
       - PHP_IMAGE:
@@ -11,12 +15,14 @@ unit:
   script:
     - bash tools/ci.sh
 
-# SSH and SFTP against OpenSSH started in the job container (tools/sshd/start.sh). The whole matrix: the code
-# paths through phpseclib 2 differ between PHP versions (on 8.5 it triggers ord() deprecations of its own, which
-# PHPUnit ignores as indirect; deprecations from src/ fail the job).
+# SSH and SFTP against OpenSSH started in the job container (tools/sshd/start.sh). The whole matrix: the code paths
+# through phpseclib differ between PHP versions.
 docker:
   image: $PHP_IMAGE
   timeout: 15m
+  variables:
+    DC_REF: feature/3.0
+    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   parallel:
     matrix:
       - PHP_IMAGE:
@@ -35,6 +41,8 @@ chr:
   variables:
     CHR_VERSION: "7.24.5"
     CHR_CACHE: $CI_PROJECT_DIR/.cache/chr
+    DC_REF: feature/3.0
+    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   cache:
     key: chr-$CHR_VERSION
     paths:

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [3.0.0] - Unreleased
+
+In development. New namespace `Lossik\Mikrotik\Ssh\` (no class of 2.x remains), built on
+`lossik/device-communication` 3.0 and phpseclib 3 (`^3.0.57`); RouterOS 7.13 or newer. The full list of changes and
+the upgrade guide come with the release.
+
 ## [2.1.0] - 2026-10-22
 
 Maintenance release of the 2.x line: it runs on patched PHP and is MIT licensed. The public API is unchanged and
