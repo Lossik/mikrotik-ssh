@@ -2,6 +2,7 @@
 
 namespace Lossik\Device\Mikrotik\Tests\Live;
 
+use Lossik\Device\Communication\RuntimeException;
 use Lossik\Device\Mikrotik\SSH\Connection;
 use Lossik\Device\Mikrotik\SSH\Options;
 use PHPUnit\Framework\Attributes\Group;
@@ -36,8 +37,30 @@ final class RouterTest extends TestCase
 		$options       = new Options();
 		$options->port = (int) $env['MIKROTIK_LIVE_PORT_SSH'];
 
-		$this->connection = (new Connection($options))->connect($env['MIKROTIK_LIVE_HOST'], $env['MIKROTIK_LIVE_USER'], $env['MIKROTIK_LIVE_PASS']);
+		$this->connection = $this->connectWithRetry($options, $env['MIKROTIK_LIVE_HOST'], $env['MIKROTIK_LIVE_USER'], $env['MIKROTIK_LIVE_PASS']);
 		$this->removeTestEntries();
+	}
+
+
+	/**
+	 * A freshly booted CHR sends its SSH banner before password logins work (seen on a slow TCG runner), so the first
+	 * connect is retried for up to 30 s. 2.x reports an unreachable router and a rejected login alike (RuntimeException,
+	 * code 2), so the retry cannot be narrower: a wrong MIKROTIK_LIVE_PASS fails only after the deadline.
+	 */
+	private function connectWithRetry(Options $options, string $host, string $user, string $pass): Connection
+	{
+		$deadline = microtime(true) + 30;
+		for ($attempt = 1; ; $attempt++) {
+			try {
+				return (new Connection($options))->connect($host, $user, $pass);
+			} catch (RuntimeException $e) {
+				if (microtime(true) + 2 > $deadline) {
+					throw $e;
+				}
+				fwrite(STDERR, sprintf("RouterTest: connect attempt %d failed (%s), retrying in 2 s\n", $attempt, $e->getMessage()));
+				sleep(2);
+			}
+		}
 	}
 
 
