@@ -87,9 +87,14 @@ final class Env
      * The limit of a reply is short on purpose (the default 60 s would outlast the 10 s of a medium test), yet far
      * above the milliseconds a command takes on the emulated router.
      */
-    public function options(float $responseTimeout = 8.0): SshOptions
+    public function options(float $responseTimeout = 8.0, string $charset = 'UTF-8'): SshOptions
     {
-        return new SshOptions(port: $this->sshPort, connectTimeout: 10.0, responseTimeout: $responseTimeout);
+        return new SshOptions(
+            port: $this->sshPort,
+            connectTimeout: 10.0,
+            responseTimeout: $responseTimeout,
+            charset: $charset,
+        );
     }
 
     /**

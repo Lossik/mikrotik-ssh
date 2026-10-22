@@ -152,7 +152,23 @@ final class SshTransportTest extends TestCase
         self::assertFalse($transport->isOpen());
     }
 
-    private static function connect(): SshTransport
+    /**
+     * A value the charset of the device cannot hold is the caller's mistake, not a failure of the connection: it is
+     * refused before anything is sent and the transport stays open.
+     */
+    public function testValueThatTheCharsetCannotHoldIsRefusedAndTheTransportStaysOpen(): void
+    {
+        $transport = self::connect('windows-1250');
+
+        try {
+            $transport->execute(new Command('/ip/address', 'add', ['comment' => "\u{65E5}\u{672C}"]));
+            self::fail('InvalidArgumentException expected');
+        } catch (\InvalidArgumentException) {
+            self::assertTrue($transport->isOpen());
+        }
+    }
+
+    private static function connect(string $charset = 'UTF-8'): SshTransport
     {
         $sshd = Sshd::settings();
 
@@ -160,7 +176,7 @@ final class SshTransportTest extends TestCase
             $sshd['SSHD_HOST'],
             $sshd['SSHD_USER'],
             $sshd['SSHD_PASS'],
-            new SshOptions(port: (int) $sshd['SSHD_PORT']),
+            new SshOptions(port: (int) $sshd['SSHD_PORT'], charset: $charset),
         );
     }
 }

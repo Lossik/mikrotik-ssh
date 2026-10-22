@@ -13,8 +13,9 @@ use PHPUnit\Framework\Attributes\Medium;
  * The conditions of a Query as the console's `where` evaluates them (plan L12; F4 left the translations to the
  * router). The expected items are the ones the API returns for the same condition (checked in the F5b probe).
  *
- * Not covered: Query::where() on a boolean attribute (`disabled`, `dynamic`, ...) - the console compares a quoted
- * "true" with a boolean and matches nothing (see probe/f5b-results.md).
+ * Query::where() does not know the type of the attribute. `true`, `false`, `yes` and `no` are written so that they
+ * select a boolean attribute (`disabled`, `dynamic`, `running`) and a string attribute that holds that very word,
+ * the way the API does (see CliCompiler::comparand()).
  */
 #[Group('live')]
 #[Medium]
@@ -122,5 +123,57 @@ final class QueryLiveTest extends LiveTestCase
         $rows = $this->client()->menu(self::QUEUES)->print($query);
 
         self::assertSame($expected, array_column($rows, 'name'));
+    }
+
+    /**
+     * Where on `true`, `false`, `yes` and `no`: a boolean attribute (`disabled` of an address list, `running` of an
+     * interface, `dynamic` of a route) and a string attribute holding one of the words (`comment`; the items hold
+     * each word and `other`, so "yes" must not select the one that says "true"). The oracle is the API's `?name=word`.
+     */
+    public function testBooleanWordsSelectWhatTheApiSelects(): void
+    {
+        $router = $this->router();
+        $items = [
+            ['10.97.3.1', 'yes', 'no'],
+            ['10.97.3.2', 'true', 'no'],
+            ['10.97.3.3', 'no', 'yes'],
+            ['10.97.3.4', 'false', 'yes'],
+            ['10.97.3.5', 'other', 'no'],
+        ];
+        foreach ($items as [$address, $comment, $disabled]) {
+            $router->add(
+                self::LISTED,
+                ['list' => self::LIST, 'address' => $address, 'comment' => $comment, 'disabled' => $disabled],
+            );
+        }
+        $queries = [];
+        foreach (['true', 'false', 'yes', 'no'] as $word) {
+            $queries[] = [self::LISTED, 'disabled', $word, 'address'];
+            $queries[] = [self::LISTED, 'comment', $word, 'address'];
+        }
+        $queries[] = ['/interface', 'running', 'true', 'name'];
+        $queries[] = ['/interface', 'running', 'yes', 'name'];
+        $queries[] = ['/ip/route', 'dynamic', 'true', 'dst-address'];
+        $queries[] = ['/ip/route', 'dynamic', 'yes', 'dst-address'];
+
+        $byApi = [];
+        $bySsh = [];
+        foreach ($queries as [$path, $attribute, $word, $column]) {
+            $label = $path . ' ' . $attribute . '=' . $word;
+            $byApi[$label] = array_column(
+                $router->rows($path . '/print', ['?' . $attribute . '=' . $word, '=.proplist=' . $column]),
+                $column,
+            );
+            $bySsh[$label] = array_column(
+                $this->client()->menu($path)->print(Query::where($attribute, $word), [$column]),
+                $column,
+            );
+        }
+        $router->close();
+
+        foreach ($byApi as $label => $selected) {
+            self::assertNotSame([], $selected, $label . ' selects something, or the row proves nothing');
+        }
+        self::assertSame($byApi, $bySsh);
     }
 }

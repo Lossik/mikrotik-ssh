@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Lossik\Mikrotik\Ssh\Tests\Live;
 
+use Lossik\DeviceCommunication\Client;
+use Lossik\DeviceCommunication\ProtocolException;
 use Lossik\DeviceCommunication\Query;
+use Lossik\Mikrotik\Ssh\SshTransport;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Medium;
@@ -22,6 +25,9 @@ final class ValuesLiveTest extends LiveTestCase
     private const ADDRESS = '10.98.0.1';
 
     private const PANGRAM = 'Příliš žluťoučký kůň';
+
+    /** The pangram in windows-1250, the bytes 2.x stored with its default charset. */
+    private const PANGRAM_CP1250 = "P\xF8\xEDli\x9A \x9Elu\x9Dou\xE8k\xFD k\xF9\xF2";
 
     /**
      * @return iterable<string, array{string}>
@@ -70,5 +76,56 @@ final class ValuesLiveTest extends LiveTestCase
         $row = $this->client()->menu(self::MENU)->first(Query::where('list', self::LIST));
 
         self::assertSame(self::PANGRAM, $row['comment'] ?? null);
+    }
+
+    /**
+     * Q-D, SshOptions::$charset: with windows-1250 the UTF-8 text of the caller is stored as the bytes 2.x stored.
+     */
+    public function testTextIsStoredInTheCharsetOfTheDevice(): void
+    {
+        $menu = (new Client($this->cp1250()))->menu(self::MENU);
+
+        $menu->add(['list' => self::LIST, 'address' => self::ADDRESS, 'comment' => self::PANGRAM]);
+        $router = $this->router();
+        $stored = $router->rows(self::MENU . '/print', ['?list=' . self::LIST])[0] ?? [];
+        $router->close();
+
+        self::assertSame(self::PANGRAM_CP1250, $stored['comment'] ?? null);
+    }
+
+    /**
+     * The migration case of Q-D: data that 2.x wrote as windows-1250 (here through the API, which stores bytes) is
+     * read as UTF-8 text; with the default charset the print fails because the console's JSON is not UTF-8.
+     */
+    public function testTextStoredInTheCharsetOfTheDeviceIsReadAsUtf8(): void
+    {
+        $router = $this->router();
+        $router->add(self::MENU, ['list' => self::LIST, 'address' => self::ADDRESS, 'comment' => self::PANGRAM_CP1250]);
+        $router->close();
+
+        $row = (new Client($this->cp1250()))->menu(self::MENU)->first(Query::where('list', self::LIST));
+
+        self::assertSame(self::PANGRAM, $row['comment'] ?? null);
+    }
+
+    public function testOutputThatIsNotInTheCharsetClosesTheTransport(): void
+    {
+        $router = $this->router();
+        // 0x81 is not assigned in windows-1250
+        $router->add(self::MENU, ['list' => self::LIST, 'address' => self::ADDRESS, 'comment' => "bad \x81 byte"]);
+        $router->close();
+        $transport = $this->cp1250();
+
+        try {
+            (new Client($transport))->menu(self::MENU)->print(Query::where('list', self::LIST));
+            self::fail('ProtocolException expected');
+        } catch (ProtocolException) {
+            self::assertFalse($transport->isOpen());
+        }
+    }
+
+    private function cp1250(): SshTransport
+    {
+        return $this->transport(options: $this->env->options(charset: 'windows-1250'));
     }
 }

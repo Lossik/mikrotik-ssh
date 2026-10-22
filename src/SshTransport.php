@@ -23,12 +23,15 @@ use phpseclib3\Net\SSH2;
  * Every execute() runs one console line in its own exec channel (see CliCompiler). A line that fails is a
  * TrapException and the transport stays open. Any ConnectionException (the connection is lost, a time limit ran out)
  * closes the transport; every further call then throws ConnectionException without I/O.
+ *
+ * With SshOptions::$charset other than UTF-8 (e.g. 'windows-1250', what 2.x wrote) the values of a command are
+ * converted to it and the output back to UTF-8, as the API transport does with ApiOptions::$charset.
  */
 final class SshTransport implements Transport
 {
     private ?SSH2 $ssh;
 
-    private function __construct(SSH2 $ssh, private readonly string $marker)
+    private function __construct(SSH2 $ssh, private readonly string $marker, private readonly string $charset)
     {
         $this->ssh = $ssh;
     }
@@ -48,15 +51,18 @@ final class SshTransport implements Transport
     ): self {
         $ssh = Connector::open(SSH2::class, $host, $user, $password, $options);
 
-        return new self($ssh, 'rosx-' . bin2hex(random_bytes(8)));
+        return new self($ssh, 'rosx-' . bin2hex(random_bytes(8)), $options->charset);
     }
 
     /**
      * @throws TrapException the console refused the line (the transport stays open)
      * @throws TimeoutException no reply within responseTimeout ('responseTimeout'); the transport is closed
      * @throws ConnectionException the transport is closed, or got closed by this call
-     * @throws ProtocolException a print answered with something other than a list of rows
+     * @throws ProtocolException a print answered with something other than rows, or the output is not valid in
+     *                           SshOptions::$charset; the transport is closed
      * @throws UnsupportedOperationException the command or query has no CLI form (nothing is sent)
+     * @throws \InvalidArgumentException a value cannot be converted to SshOptions::$charset (nothing is sent, the
+     *                                   transport stays open)
      */
     public function execute(Command $command): Result
     {
@@ -64,7 +70,7 @@ final class SshTransport implements Transport
         if ($ssh === null) {
             throw new ConnectionException('The transport is closed');
         }
-        $line = CliCompiler::compile($command, $this->marker);
+        $line = CliCompiler::compile($command, $this->marker, $this->charset);
         try {
             $output = $ssh->exec($line);
         } catch (\Exception $e) {
@@ -81,7 +87,7 @@ final class SshTransport implements Transport
             throw new ConnectionException('The device did not run the command');
         }
         try {
-            return CliCompiler::result($command, $output, $this->marker);
+            return CliCompiler::result($command, $output, $this->marker, $this->charset);
         } catch (ConnectionException $e) {
             $this->close();
             throw $e;

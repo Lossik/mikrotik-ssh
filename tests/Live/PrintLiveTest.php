@@ -95,9 +95,24 @@ final class PrintLiveTest extends LiveTestCase
         self::assertSame($comment, $row['comment'] ?? null);
     }
 
-    public function testPrintWithNoMatchIsAnEmptyList(): void
+    /**
+     * With a proplist the line prints through a variable (see CliCompiler); an empty answer must survive that.
+     *
+     * @return iterable<string, array{list<string>}>
+     */
+    public static function proplists(): iterable
     {
-        $rows = $this->client()->menu(self::MENU)->print(Query::where('list', 'lossik-live-no-such-list'));
+        yield 'no proplist' => [[]];
+        yield 'a column' => [['address']];
+    }
+
+    /**
+     * @param list<string> $proplist
+     */
+    #[DataProvider('proplists')]
+    public function testPrintWithNoMatchIsAnEmptyList(array $proplist): void
+    {
+        $rows = $this->client()->menu(self::MENU)->print(Query::where('list', 'lossik-live-no-such-list'), $proplist);
 
         self::assertSame([], $rows);
     }
