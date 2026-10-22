@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.1] - Unreleased
+
+Fix of the 2.1.0 audit. `src/` and the public API are unchanged.
+
+### Fixed
+
+- `composer.json` allowed `lossik/device-communication` 2.0.0, which lacks the `Command` class this package extends;
+  the minimum is now `^2.0.1` (later 2.x releases stay allowed).
+
+### Tests and CI
+
+- New CI job `lowest` (`tools/ci.sh --prefer-lowest`) runs the suite against the lowest allowed version of every
+  dependency, which would have caught the wrong minimum above; a new test (`CommandTest`) builds an `SSH\Command`
+  for it, because the default suite had no test that did.
+
 ## [2.1.0] - 2026-10-22
 
 Maintenance release of the 2.x line: it runs on patched PHP and is MIT licensed. The public API is unchanged and
