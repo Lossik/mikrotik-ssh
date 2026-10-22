@@ -3,8 +3,9 @@
 #
 #   bash tools/sshd/start.sh
 #
-# Installs openssh-server, creates a test user with a random password, starts sshd on 127.0.0.1:2222 and waits until
-# the port answers with an SSH banner. The connection settings are written to .cache/sshd/env (KEY=value lines, not
+# Installs openssh-server, creates two test users with random passwords (one logs in to a shell, the other to a command
+# that never answers: the "silent" device), starts sshd on 127.0.0.1:2222 and waits until the port answers with an SSH
+# banner. The connection settings are written to .cache/sshd/env (KEY=value lines, not
 # committed); tests/Docker reads them from there.
 #
 # The docker group as a whole: bash tools/ci.sh --deps-only && bash tools/sshd/start.sh && vendor/bin/phpunit --group docker
@@ -13,6 +14,7 @@ set -euo pipefail
 SSHD_HOST=127.0.0.1
 SSHD_PORT=2222
 SSHD_USER=lossik-test
+SSHD_SILENT_USER=lossik-silent
 ENV_DIR=.cache/sshd
 ENV_FILE="$ENV_DIR/env"
 
@@ -31,6 +33,18 @@ if ! id -u "$SSHD_USER" > /dev/null 2>&1; then
 	useradd --create-home --shell /bin/bash "$SSHD_USER"
 fi
 echo "$SSHD_USER:$SSHD_PASS" | chpasswd
+
+step "silent user $SSHD_SILENT_USER (random password, every command is sleep)"
+SSHD_SILENT_PASS=$(php -r 'echo bin2hex(random_bytes(12));')
+if ! id -u "$SSHD_SILENT_USER" > /dev/null 2>&1; then
+	useradd --create-home --shell /bin/bash "$SSHD_SILENT_USER"
+fi
+echo "$SSHD_SILENT_USER:$SSHD_SILENT_PASS" | chpasswd
+mkdir -p /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/lossik-silent.conf <<EOF
+Match User $SSHD_SILENT_USER
+	ForceCommand sleep 120
+EOF
 
 step "start sshd on $SSHD_HOST:$SSHD_PORT"
 mkdir -p /run/sshd
@@ -64,5 +78,7 @@ SSHD_HOST=$SSHD_HOST
 SSHD_PORT=$SSHD_PORT
 SSHD_USER=$SSHD_USER
 SSHD_PASS=$SSHD_PASS
+SSHD_SILENT_USER=$SSHD_SILENT_USER
+SSHD_SILENT_PASS=$SSHD_SILENT_PASS
 EOF
 step "ready, settings in $ENV_FILE"

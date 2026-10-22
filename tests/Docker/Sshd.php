@@ -14,23 +14,38 @@ final class Sshd
 {
     private const ENV_FILE = __DIR__ . '/../../.cache/sshd/env';
 
+    private const KEYS = ['SSHD_HOST', 'SSHD_PORT', 'SSHD_USER', 'SSHD_PASS', 'SSHD_SILENT_USER', 'SSHD_SILENT_PASS'];
+
     /**
-     * @return array{SSHD_HOST: string, SSHD_PORT: string, SSHD_USER: string, SSHD_PASS: string}
+     * @return array{
+     *     SSHD_HOST: string,
+     *     SSHD_PORT: string,
+     *     SSHD_USER: string,
+     *     SSHD_PASS: string,
+     *     SSHD_SILENT_USER: string,
+     *     SSHD_SILENT_PASS: string,
+     * }
      */
     public static function settings(): array
     {
-        $settings = is_file(self::ENV_FILE) ? parse_ini_file(self::ENV_FILE, false, INI_SCANNER_RAW) : false;
-        if (
-            !is_array($settings)
-            || !is_string($host = $settings['SSHD_HOST'] ?? null) || $host === ''
-            || !is_string($port = $settings['SSHD_PORT'] ?? null) || $port === ''
-            || !is_string($user = $settings['SSHD_USER'] ?? null) || $user === ''
-            || !is_string($pass = $settings['SSHD_PASS'] ?? null) || $pass === ''
-        ) {
-            Assert::fail('.cache/sshd/env is missing or incomplete; run bash tools/sshd/start.sh first');
+        $file = is_file(self::ENV_FILE) ? parse_ini_file(self::ENV_FILE, false, INI_SCANNER_RAW) : false;
+        $values = [];
+        foreach (self::KEYS as $key) {
+            $value = is_array($file) ? ($file[$key] ?? null) : null;
+            if (!is_string($value) || $value === '') {
+                Assert::fail('.cache/sshd/env is missing or incomplete; run bash tools/sshd/start.sh first');
+            }
+            $values[$key] = $value;
         }
 
-        return ['SSHD_HOST' => $host, 'SSHD_PORT' => $port, 'SSHD_USER' => $user, 'SSHD_PASS' => $pass];
+        return [
+            'SSHD_HOST' => $values['SSHD_HOST'],
+            'SSHD_PORT' => $values['SSHD_PORT'],
+            'SSHD_USER' => $values['SSHD_USER'],
+            'SSHD_PASS' => $values['SSHD_PASS'],
+            'SSHD_SILENT_USER' => $values['SSHD_SILENT_USER'],
+            'SSHD_SILENT_PASS' => $values['SSHD_SILENT_PASS'],
+        ];
     }
 
     /**

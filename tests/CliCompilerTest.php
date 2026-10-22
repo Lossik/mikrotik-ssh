@@ -32,6 +32,10 @@ final class CliCompilerTest extends TestCase
         yield 'line break' => ["l1\nl2", '"l1\\nl2"'];
         yield 'carriage return' => ["l1\r\nl2", '"l1\\r\\nl2"'];
         yield 'empty' => ['', '""'];
+        // the console silently drops these bytes when they are typed into a string as they are (live: L7)
+        yield 'UTF-8 text' => ['Příliš', '"P\\C5\\99\\C3\\ADli\\C5\\A1"'];
+        yield 'tab' => ["a\tb", '"a\\09b"'];
+        yield 'control character and delete' => ["\x01\x7F", '"\\01\\7F"'];
     }
 
     #[DataProvider('values')]
@@ -49,11 +53,17 @@ final class CliCompilerTest extends TestCase
     {
         yield 'print' => [
             new Command('/ip/address', 'print'),
-            ':put [:serialize to=json [/ip/address/print as-value]]',
+            ':put [:serialize to=json options=json.no-string-conversion [/ip/address/print as-value]]',
         ];
         yield 'print with a spaced menu, proplist and query' => [
             new Command('ip address', 'print', [], Query::where('interface', 'ether1'), ['.id', 'address']),
-            ':put [:serialize to=json [/ip/address/print as-value proplist=.id,address where interface="ether1"]]',
+            ':put [:serialize to=json options=json.no-string-conversion '
+                . '[/ip/address/print as-value proplist=address where interface="ether1"]]',
+        ];
+        // the console takes no .id in a proplist (live: L12; Menu::update and delete ask for exactly that)
+        yield 'print of the .id only asks for no column' => [
+            new Command('/ip/address', 'print', [], null, ['.id']),
+            ':put [:serialize to=json options=json.no-string-conversion [/ip/address/print as-value]]',
         ];
         yield 'add' => [
             new Command('/ip/address', 'add', ['address' => '10.0.0.1/24', 'comment' => 'a b']),
@@ -144,10 +154,9 @@ final class CliCompilerTest extends TestCase
     }
 
     /**
-     * S2: JSON of `:serialize to=json`. The first two rows are the examples of the RouterOS documentation (scripting
-     * examples: `{"number":1234,"string":1234.000000}`, and with `options=json.no-string-conversion`
-     * `{"number":1234,"string":"1234"}`); the others are print rows in the same notation. The shape of print
-     * is confirmed on a router by L12 (F5).
+     * S2: JSON of `:serialize to=json options=json.no-string-conversion`. The first two rows are the examples of the
+     * RouterOS documentation (`{"number":1234,"string":1234.000000}` is what the same value gives without the
+     * option); the others are what RouterOS 7.24.5 printed (live probe of F5b, the line end is the console's `\r\n`).
      *
      * @return iterable<string, array{string, list<array<string, string>>}>
      */
@@ -161,23 +170,70 @@ final class CliCompilerTest extends TestCase
             '[{"number":1234,"string":"1234"}]',
             [['number' => '1234', 'string' => '1234']],
         ];
-        yield 'booleans' => [
-            '[{".id":"*1","disabled":false,"dynamic":true}]',
-            [['.id' => '*1', 'disabled' => 'false', 'dynamic' => 'true']],
+        yield 'measured: /ip/address, booleans' => [
+            '[{".id":"*2","address":"10.97.0.1/24","comment":"lossik-live-test","disabled":false,"dynamic":false,'
+                . '"interface":"ether1","invalid":false,"network":"10.97.0.0","slave":false,"vrf":"main"}]' . "\r\n",
+            [[
+                '.id' => '*2',
+                'address' => '10.97.0.1/24',
+                'comment' => 'lossik-live-test',
+                'disabled' => 'false',
+                'dynamic' => 'false',
+                'interface' => 'ether1',
+                'invalid' => 'false',
+                'network' => '10.97.0.0',
+                'slave' => 'false',
+                'vrf' => 'main',
+            ]],
         ];
-        yield 'semicolon and equals sign in a value' => [
-            '[{".id":"*1","comment":"a=b;c=d"}]',
-            [['.id' => '*1', 'comment' => 'a=b;c=d']],
+        yield 'measured: /interface, integers' => [
+            '[{".id":"*2","actual-mtu":1500,"disabled":false,"mac-address":"52:54:00:12:34:56","name":"ether1",'
+                . '"running":true,"type":"ether"},{".id":"*1","actual-mtu":65536,"disabled":false,'
+                . '"mac-address":"00:00:00:00:00:00","name":"lo","running":true,"type":"loopback"}]' . "\r\n",
+            [
+                [
+                    '.id' => '*2',
+                    'actual-mtu' => '1500',
+                    'disabled' => 'false',
+                    'mac-address' => '52:54:00:12:34:56',
+                    'name' => 'ether1',
+                    'running' => 'true',
+                    'type' => 'ether',
+                ],
+                [
+                    '.id' => '*1',
+                    'actual-mtu' => '65536',
+                    'disabled' => 'false',
+                    'mac-address' => '00:00:00:00:00:00',
+                    'name' => 'lo',
+                    'running' => 'true',
+                    'type' => 'loopback',
+                ],
+            ],
         ];
-        yield 'unicode and slashes' => [
-            '[{"comment":"Příliš žluťoučký kůň","address":"10.0.0.1\/24"}]',
-            [['comment' => 'Příliš žluťoučký kůň', 'address' => '10.0.0.1/24']],
+        yield 'measured: strings that look like numbers' => [
+            '[{"comment":"007"},{"comment":"1e3"},{"comment":"0x10"},{"comment":" 12 "},{"comment":"1.50"},'
+                . '{"comment":"12345678901234567890"}]' . "\r\n",
+            [
+                ['comment' => '007'],
+                ['comment' => '1e3'],
+                ['comment' => '0x10'],
+                ['comment' => ' 12 '],
+                ['comment' => '1.50'],
+                ['comment' => '12345678901234567890'],
+            ],
+        ];
+        yield 'measured: quote, backslash, dollar, question mark, semicolon, equals sign' => [
+            '[{".id":"*A","comment":"a=b;c=d \"q\" \\\\ $x ?"}]' . "\r\n",
+            [['.id' => '*A', 'comment' => 'a=b;c=d "q" \\ $x ?']],
+        ];
+        yield 'measured: UTF-8 is not escaped' => [
+            '[{"address":"10.97.1.51","comment":"Příliš žluťoučký kůň"}]' . "\r\n",
+            [['address' => '10.97.1.51', 'comment' => 'Příliš žluťoučký kůň']],
         ];
         yield 'large counter' => ['[{"rx-byte":12345678901234567890}]', [['rx-byte' => '12345678901234567890']]];
         yield 'several rows' => ['[{"a":1},{"a":2}]', [['a' => '1'], ['a' => '2']]];
-        yield 'empty result' => ['[]', []];
-        yield 'empty result with the line end of the console' => ["[]\r\n", []];
-        yield 'rows with the line end of the console' => ["[{\"a\":\"1\"}]\r\n", [['a' => '1']]];
+        yield 'measured: empty result' => ["[]\r\n", []];
         yield 'nothing printed' => ['', []];
     }
 
@@ -191,6 +247,36 @@ final class CliCompilerTest extends TestCase
 
         self::assertSame($rows, $result->rows);
         self::assertNull($result->ret);
+    }
+
+    /**
+     * The console always prints `.id` and `comment`; the API prints the requested columns only.
+     *
+     * @return iterable<string, array{list<string>, list<array<string, string>>}>
+     */
+    public static function proplists(): iterable
+    {
+        yield 'a column' => [['address'], [['address' => '10.0.0.1/24']]];
+        yield 'the .id' => [['.id'], [['.id' => '*1']]];
+        yield 'both' => [['address', '.id'], [['.id' => '*1', 'address' => '10.0.0.1/24']]];
+        yield 'none: all that was printed' => [
+            [],
+            [['.id' => '*1', 'address' => '10.0.0.1/24', 'comment' => 'c']],
+        ];
+    }
+
+    /**
+     * @param list<string> $proplist
+     * @param list<array<string, string>> $rows
+     */
+    #[DataProvider('proplists')]
+    public function testPrintKeepsOnlyTheRequestedColumns(array $proplist, array $rows): void
+    {
+        $json = '[{".id":"*1","address":"10.0.0.1/24","comment":"c"}]';
+
+        $result = CliCompiler::result(new Command('/ip/address', 'print', [], null, $proplist), $json, self::MARKER);
+
+        self::assertSame($rows, $result->rows);
     }
 
     public function testAddReturnsTheIdOfTheNewItem(): void
@@ -208,11 +294,11 @@ final class CliCompilerTest extends TestCase
     {
         yield 'print, marker only' => ['print', "M\r\n"];
         yield 'print, marker after other output' => ['print', "something\r\nM\r\n"];
-        yield 'print, a message of the console instead of JSON' => ['print', "syntax error (line 1 column 9)\r\n"];
+        yield 'print, a message of the console instead of JSON' => ['print', "syntax error (line 1 column 34)\n"];
         yield 'add, marker' => ['add', "M\r\n"];
-        yield 'add, a message instead of an ID' => ['add', "failure: already have such address\r\n"];
+        yield 'add, a message instead of an ID' => ['add', "syntax error (line 1 column 22)\n"];
         yield 'set, marker' => ['set', "M\r\n"];
-        yield 'set, a message of the console' => ['set', "bad command name sett (line 1 column 13)\r\n"];
+        yield 'set, a message of the console' => ['set', "expected end of command (line 1 column 64)\n"];
     }
 
     #[DataProvider('refusals')]
@@ -221,6 +307,16 @@ final class CliCompilerTest extends TestCase
         $this->expectException(TrapException::class);
 
         CliCompiler::result(new Command('/ip/address', $verb), $output, self::MARKER);
+    }
+
+    public function testMarkerIsReportedAsTheCommandThatFailed(): void
+    {
+        try {
+            CliCompiler::result(new Command('/ip/address', 'set'), "M\r\n", self::MARKER);
+            self::fail('TrapException expected');
+        } catch (TrapException $e) {
+            self::assertSame('/ip/address set failed', $e->getMessage());
+        }
     }
 
     /**

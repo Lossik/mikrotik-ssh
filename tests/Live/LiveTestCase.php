@@ -1,0 +1,145 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Lossik\Mikrotik\Ssh\Tests\Live;
+
+use Lossik\DeviceCommunication\Client;
+use Lossik\Mikrotik\Ssh\FileTransfer;
+use Lossik\Mikrotik\Ssh\SshOptions;
+use Lossik\Mikrotik\Ssh\SshTransport;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Base of the live tests (group `live`, see tools/chr): connects to the router named by the environment and removes
+ * after every test what the test left behind - each item with the comment {@see self::TAG} in the menus the tests
+ * use, every address-list item of {@see self::LIST}, and the files whose name starts with {@see self::FILE_PREFIX}.
+ */
+abstract class LiveTestCase extends TestCase
+{
+    /** The comment of everything the live tests create on the router. */
+    protected const TAG = 'lossik-live-test';
+
+    /**
+     * The address list of the items whose comment is the value under test: they cannot carry the tag, so they are
+     * found by the list.
+     */
+    protected const LIST = 'lossik-live-list';
+
+    /** The name prefix of the files the tests upload. */
+    protected const FILE_PREFIX = 'lossik-live-';
+
+    /** The menus in which the tests create items. */
+    private const TAGGED_MENUS = [
+        '/ip/firewall/address-list',
+        '/ipv6/firewall/address-list',
+        '/ip/firewall/nat',
+        '/ip/firewall/filter',
+        '/ip/firewall/mangle',
+        '/queue/tree',
+        '/queue/simple',
+        '/ip/arp',
+        '/ip/address',
+        '/ppp/secret',
+        '/ip/dhcp-server/lease',
+        '/ipv6/dhcp-server/binding',
+    ];
+
+    /**
+     * The admin sessions are shared by all tests of the run: the login of the emulated router takes 1 to 3 s (key
+     * exchange), more than the commands of a test together, and the 10 s of a medium test are not much. A session
+     * has no state a test could leave behind (one channel per command), and one that got closed is opened again.
+     */
+    private static ?SshTransport $adminTransport = null;
+
+    private static ?FileTransfer $adminFiles = null;
+
+    protected Env $env;
+
+    /** @var list<SshTransport|FileTransfer> */
+    private array $connections = [];
+
+    protected function setUp(): void
+    {
+        $this->env = Env::load();
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->connections as $connection) {
+            $connection->close();
+        }
+        // without the environment (setUp failed) there is no router to clean
+        if (isset($this->env)) {
+            $this->removeWhatTheTestLeft();
+        }
+    }
+
+    /**
+     * A console session: the shared one of the admin of the router, or (another user, other options) a new one that
+     * is closed in tearDown.
+     */
+    protected function transport(
+        ?string $user = null,
+        ?string $password = null,
+        ?SshOptions $options = null,
+    ): SshTransport {
+        if ($user === null && $password === null && $options === null) {
+            if (self::$adminTransport === null || !self::$adminTransport->isOpen()) {
+                self::$adminTransport = $this->env->connect();
+            }
+
+            return self::$adminTransport;
+        }
+        $transport = $this->env->connect($user, $password, $options);
+        $this->connections[] = $transport;
+
+        return $transport;
+    }
+
+    protected function client(): Client
+    {
+        return new Client($this->transport());
+    }
+
+    /**
+     * An SFTP session: the shared one of the admin, or (another user) a new one that is closed in tearDown.
+     */
+    protected function files(?string $user = null, ?string $password = null): FileTransfer
+    {
+        if ($user === null && $password === null) {
+            if (self::$adminFiles === null || !self::$adminFiles->isOpen()) {
+                self::$adminFiles = $this->env->connectFiles();
+            }
+
+            return self::$adminFiles;
+        }
+        $files = $this->env->connectFiles($user, $password);
+        $this->connections[] = $files;
+
+        return $files;
+    }
+
+    protected function router(): Router
+    {
+        return Router::connect($this->env);
+    }
+
+    private function removeWhatTheTestLeft(): void
+    {
+        $router = Router::connect($this->env);
+        try {
+            foreach (self::TAGGED_MENUS as $menu) {
+                $router->removeWhere($menu, 'comment', self::TAG);
+            }
+            $router->removeWhere('/ip/firewall/address-list', 'list', self::LIST);
+            foreach ($router->rows('/file/print', ['=.proplist=.id,name']) as $file) {
+                if (str_starts_with($file['name'] ?? '', self::FILE_PREFIX)) {
+                    $router->rows('/file/remove', ['=.id=' . $file['.id']]);
+                }
+            }
+        } finally {
+            $router->close();
+        }
+    }
+}

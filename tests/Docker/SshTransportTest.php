@@ -122,6 +122,36 @@ final class SshTransportTest extends TestCase
         }
     }
 
+    /**
+     * A device that logs in and then never answers the command (sshd runs `sleep` whatever is asked): phpseclib's
+     * exec() swallows the timeout and returns what it has, so only isTimeout() tells a silent device from one that
+     * printed nothing. The transport is closed, as for any lost connection.
+     */
+    public function testCommandThatGetsNoReplyIsATimeoutAndClosesTheTransport(): void
+    {
+        $sshd = Sshd::settings();
+        $transport = SshTransport::connect(
+            $sshd['SSHD_HOST'],
+            $sshd['SSHD_SILENT_USER'],
+            $sshd['SSHD_SILENT_PASS'],
+            new SshOptions(port: (int) $sshd['SSHD_PORT'], responseTimeout: 1.0),
+        );
+
+        $caught = null;
+        $started = hrtime(true);
+        try {
+            $transport->execute(new Command('/ip/address', 'set', ['.id' => '*1', 'comment' => 'x']));
+        } catch (TimeoutException $e) {
+            $caught = $e;
+        }
+        $elapsed = (hrtime(true) - $started) / 1e9;
+
+        self::assertInstanceOf(TimeoutException::class, $caught);
+        self::assertSame('responseTimeout', $caught->limit);
+        self::assertLessThan(5.0, $elapsed);
+        self::assertFalse($transport->isOpen());
+    }
+
     private static function connect(): SshTransport
     {
         $sshd = Sshd::settings();
