@@ -1,0 +1,1 @@
+.id:S:2:*1\r\ncomment:S:0:\r\ndont-require-permissions:S:5:false\r\nname:S:2:ml\r\nowner:S:5:admin\r\npolicy:A:10\r\nE:str:3:ftp\r\nE:str:6:reboot\r\nE:str:4:read\r\nE:str:5:write\r\nE:str:6:policy\r\nE:str:4:test\r\nE:str:8:password\r\nE:str:5:sniff\r\nE:str:9:sensitive\r\nE:str:5:romon\r\nrun-count:S:1:0\r\nsource:S:7:a\nb\n  c\r\n--\r\nEND\r\n

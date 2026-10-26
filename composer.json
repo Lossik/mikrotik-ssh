@@ -1,12 +1,38 @@
 {
-	"name": "lossik/mikrotik-ssh",
-	"autoload": {
-		"psr-4": {
-			"Lossik\\Device\\Mikrotik\\": "src/"
-		}
-	},
-	"require": {
-		"lossik/device-communication": "~2.0",
-		"phpseclib/phpseclib": "~2.0"
-	}
+    "name": "lossik/mikrotik-ssh",
+    "description": "MikroTik RouterOS client over SSH (console commands) and SFTP (file transfer) for lossik/device-communication",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "ext-iconv": "*",
+        "lossik/device-communication": "^3.0",
+        "phpseclib/phpseclib": "^3.0.57"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5",
+        "phpstan/phpstan": "^2.1",
+        "squizlabs/php_codesniffer": "^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Lossik\\Mikrotik\\Ssh\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Lossik\\Mikrotik\\Ssh\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:live": "phpunit --group live",
+        "stan": "phpstan analyse --memory-limit=1G",
+        "cs": "phpcs",
+        "ci": [
+            "@cs",
+            "@stan",
+            "@test"
+        ]
+    }
 }
