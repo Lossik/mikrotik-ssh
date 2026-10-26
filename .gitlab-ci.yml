@@ -1,10 +1,6 @@
-# Until lossik/device-communication 3.0.0 is released, tools/ci.sh clones its branch DC_REF (step 3).
 unit:
   image: $PHP_IMAGE
   timeout: 15m
-  variables:
-    DC_REF: feature/3.0
-    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   parallel:
     matrix:
       - PHP_IMAGE:
@@ -20,9 +16,6 @@ unit:
 docker:
   image: $PHP_IMAGE
   timeout: 15m
-  variables:
-    DC_REF: feature/3.0
-    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   parallel:
     matrix:
       - PHP_IMAGE:
@@ -40,8 +33,6 @@ chr:
   timeout: 20m
   variables:
     CHR_CACHE: $CI_PROJECT_DIR/.cache/chr
-    DC_REF: feature/3.0
-    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   cache:
     key: chr-$CHR_VERSION
     paths:
@@ -64,8 +55,6 @@ chr:schedule:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   variables:
     CHR_CACHE: $CI_PROJECT_DIR/.cache/chr
-    DC_REF: feature/3.0
-    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   cache:
     key: chr-$CHR_VERSION
     paths:
@@ -96,8 +85,6 @@ chr:schedule:php8.5:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   variables:
     CHR_CACHE: $CI_PROJECT_DIR/.cache/chr
-    DC_REF: feature/3.0
-    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   cache:
     key: chr-$CHR_VERSION
     paths:
@@ -122,8 +109,6 @@ chr:schedule:6.34:
   variables:
     CHR_VERSION: "6.34"
     CHR_CACHE: $CI_PROJECT_DIR/.cache/chr
-    DC_REF: feature/3.0
-    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   cache:
     key: chr-6.34
     paths:
@@ -143,8 +128,6 @@ chr:schedule:7.25rc3:
   variables:
     CHR_VERSION: "7.25rc3"
     CHR_CACHE: $CI_PROJECT_DIR/.cache/chr
-    DC_REF: feature/3.0
-    DC_URL: http://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab:8929/lossik/device-communication.git
   cache:
     key: chr-7.25rc3
     paths:
