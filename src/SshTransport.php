@@ -29,6 +29,9 @@ use phpseclib3\Net\SSH2;
  */
 final class SshTransport implements Transport
 {
+    /** The console's refusal of a column the menu does not have in the proplist (RouterOS 7.1 … 7.24.5). */
+    private const UNKNOWN_COLUMN = 'input does not match any value of value-name';
+
     private ?SSH2 $ssh;
 
     private ?string $consolePath = null;
@@ -64,6 +67,9 @@ final class SshTransport implements Transport
      * unreadable answer included, the text line of CliCompiler::compileText() read by TextParser. consolePath()
      * tells which.
      *
+     * A print whose proplist names a column the menu does not have is sent once more without the proplist (RouterOS
+     * 7.1 and newer refuse such a column; see fillFlags()).
+     *
      * A change of several items is not atomic, on either path, like on the API: `set numbers=*1,*FFFF` changes `*1`
      * and then fails with "no such item" for `*FFFF` (TrapException; `*1` stays changed).
      *
@@ -92,22 +98,33 @@ final class SshTransport implements Transport
             $this->routerOsVersion = $selection['version'];
         }
         $text = $this->consolePath === 'text';
-        $output = $this->exec(
-            $text ? CliCompiler::compileText($command, $this->charset, $this->routerOsVersion) : $jsonLine,
-            'command',
-        );
+        $line = $text ? CliCompiler::compileText($command, $this->charset, $this->routerOsVersion) : $jsonLine;
+        $output = $this->exec($line, 'command');
         try {
-            if ($text && $command->verb !== 'print') {
-                return CliCompiler::textResult($command, $output, $this->charset);
+            if ($command->verb !== 'print') {
+                return $text
+                    ? CliCompiler::textResult($command, $output, $this->charset)
+                    : CliCompiler::result($command, $output, $this->marker, $this->charset, false);
             }
-            if ($text) {
-                $rows = TextParser::parse($output, $this->charset);
-            } else {
-                $result = CliCompiler::result($command, $output, $this->marker, $this->charset, false);
-                if ($command->verb !== 'print') {
-                    return $result;
+            try {
+                $rows = $this->rows($command, $output, $text);
+            } catch (TrapException $e) {
+                // M1 (owner's decision, outside the plan): a column the menu does not have in the proplist is refused
+                // from RouterOS 7.1 on both paths; the print runs once more without the proplist, as on 6.x, and the
+                // columns are reduced here. Unmeasured [N]: that `proplist=running` on /ip/firewall/address-list
+                // gives the same error as the measured `proplist=nosuchcol` (pl-unknown), and its exact text inside
+                // `:local r [...]` of the text path (hence str_contains: a suffix like ` (line 1 column N)`, or the
+                // `(:error; line 1)` of the JSON path)
+                $plain = new Command($command->menu, 'print', [], $command->query);
+                $plainLine = $text
+                    ? CliCompiler::compileText($plain, $this->charset, $this->routerOsVersion)
+                    : CliCompiler::compile($plain, $this->marker, $this->charset);
+                if ($plainLine === $line || !str_contains($e->getMessage(), self::UNKNOWN_COLUMN)) {
+                    // no proplist was sent (6.x, an unknown version, only `.id`), or another refusal
+                    throw $e;
                 }
-                $rows = $result->rows;
+                // a separate exec outside this catch: any error of it is the TrapException of the call, no third print
+                $rows = $this->rows($command, $this->exec($plainLine, 'command'), $text);
             }
 
             // the flags first (they need the .id of the rows), the requested columns last
@@ -126,6 +143,20 @@ final class SshTransport implements Transport
     public function consolePath(): ?string
     {
         return $this->consolePath;
+    }
+
+    /**
+     * The rows a print line printed, not yet reduced to the proplist.
+     *
+     * @return list<array<string, string>>
+     * @throws TrapException the console refused the print
+     * @throws ProtocolException the output is not what the print line prints
+     */
+    private function rows(Command $command, string $output, bool $text): array
+    {
+        return $text
+            ? TextParser::parse($output, $this->charset)
+            : CliCompiler::result($command, $output, $this->marker, $this->charset, false)->rows;
     }
 
     private function exec(string $line, string $what): string
@@ -159,9 +190,14 @@ final class SshTransport implements Transport
      * prints `*c`, the rows carry `*C`); the `.id` the console prints without being asked is what the rows are
      * matched by. No rows, or the flag in some row: no line, nothing overwritten.
      *
-     * A flag the menu does not have: `find` finds nothing, the rows get `'false'` where the API has no such key. Today
-     * that holds where no proplist is sent, i.e. RouterOS 6.x; from 7.1 the console refuses the unknown column in the
-     * proplist and the print is a TrapException (on both paths).
+     * A flag the menu does not have: `find` finds nothing, the rows get `'false'` where the API has no such key. That
+     * holds on every version and both paths: from 7.1 the console refuses a column the menu does not have in the
+     * proplist ("input does not match any value of value-name"), and execute() then prints once more without the
+     * proplist, as on 6.x (one more exec, only on that error; any error of the second print is a TrapException). A
+     * requested column that is not a flag and that the menu does not have is simply absent from the rows (unmeasured
+     * [N]: that the API omits it, too). Known limit after that second print, the same as on 6.x: the attributes the
+     * console prints only when the proplist names them (`actual-interface`, `routes`, `ipv6-routes`,
+     * `last-logged-out`) are not in the rows.
      *
      * @param list<array<string, string>> $rows
      * @return list<array<string, string>>

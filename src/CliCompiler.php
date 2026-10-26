@@ -31,7 +31,9 @@ use Lossik\DeviceCommunication\UnsupportedOperationException;
  * Singleton menus (/system/resource, /system/identity, /system/clock, /ip/dns …) print one JSON object instead of a
  * list and reject `proplist` ("bad parameter proplist"). With a proplist the print line therefore tries the proplist
  * and, on that very error, prints without it, in the same console line (one round trip); an object is one row, and
- * the rows are reduced to the requested columns here either way. Any other error of the print is reported as it is.
+ * the rows are reduced to the requested columns here either way. Any other error of the print is reported as it is;
+ * a column the menu does not have ("input does not match any value of value-name", RouterOS 7.1 and newer) is not
+ * handled in the line but by SshTransport, which sends the print once more without the proplist (both paths).
  *
  * The JSON path wraps lines so a failing command prints a marker and the console reason. The text path deliberately
  * leaves commands unwrapped and reports the raw console error. Names are checked and values are converted to the
@@ -92,7 +94,8 @@ final class CliCompiler
      *    prints every value with its length in bytes (read back by TextParser). The proplist is sent from RouterOS
      *    7.1 only (on 6.x it is a syntax error; an unknown version sends none), never with `.id`, which the console
      *    rejects as a column ("input does not match any value of value-name") and prints anyway; the columns are
-     *    reduced after parsing either way;
+     *    reduced after parsing either way. The console refuses a column the menu does not have with the same error;
+     *    SshTransport then sends this line once more without the proplist;
      *  - `add` → `:put [/menu add k="v" …]` (the output is the ID of the new item);
      *  - any other verb → `/menu verb numbers=*1,*2 k="v" …`, which prints nothing on success.
      *

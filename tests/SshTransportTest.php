@@ -27,6 +27,8 @@ final class SshTransportTest extends TestCase
 
     private const FIND_DYNAMIC = ':put [/ip firewall address-list find where dynamic~"^true\\$"]';
 
+    private const FIND_RUNNING = ':put [/ip firewall address-list find where running~"^true\\$"]';
+
     /** O2 */
     public function testVersionIsAskedOnceBeforeTheFirstCommand(): void
     {
@@ -349,6 +351,158 @@ final class SshTransportTest extends TestCase
             return $row;
         }, $result->rows));
         self::assertSame($finds, array_slice($ssh->commands, 2));
+    }
+
+    /**
+     * M1 (gate brana-otazky-m1.md (b)): from RouterOS 7.1 the console refuses a column the menu does not have in the
+     * proplist (`c-out-7.1-console.txt` pl-unknown, JSON path `g1-single-7.23.8.txt`); the print runs once more
+     * without it, then the flag pass as on 6.x. A flag the menu does not have is `'false'`, another column is absent.
+     *
+     * @return iterable<string, array{string, list<string>, list<string>, list<array<string, string>>, list<string>}>
+     *         the answer to the version query, the outputs after it, the proplist, the rows, the lines sent after it
+     */
+    public static function unknownColumns(): iterable
+    {
+        $json = static fn (string $proplist): string => ':onerror e in={ :local r; :onerror p in={ :set r '
+            . '[/ip/firewall/address-list/print as-value proplist=' . $proplist . '] } do={ :if ($p ~ '
+            . '"^bad parameter proplist") do={ :set r [/ip/firewall/address-list/print as-value] } else={ :error $p '
+            . '} }; :put [:serialize to=json options=json.no-string-conversion $r] } do={ :put ("probe " . $e) }';
+        $jsonPlain = ':onerror e in={ :put [:serialize to=json options=json.no-string-conversion '
+            . '[/ip/firewall/address-list/print as-value]] } do={ :put ("probe " . $e) }';
+        $jsonRefusal = "probe input does not match any value of value-name (:error; line 1)\r\n";
+        $jsonRows = ConsoleFixture::load('7.17.2-sl-w-json-not-str-true');
+        $jsonAddresses = ['10.8.0.1', '10.8.0.3', '10.8.0.4', '10.8.0.5'];
+        $text = static fn (string $proplist): string => ':local r [/ip firewall address-list print as-value'
+            . ($proplist === '' ? '' : ' proplist=' . $proplist) . ']; ' . CliCompilerTest::SER3;
+        $textRows = ConsoleFixture::load('7.1-ser3-addresslist');
+        $textAddresses = array_map(static fn (int $n): string => '10.0.0.' . $n, range(1, 7));
+        $running = static fn (string $address): array => ['address' => $address, 'running' => 'false'];
+        $only = static fn (string $address): array => ['address' => $address];
+        yield 'JSON path, a flag the menu does not have' => [
+            '7.17.2 (stable)',
+            [$jsonRefusal, $jsonRows, "\r\n"],
+            ['address', 'running'],
+            array_map($running, $jsonAddresses),
+            [$json('address,running'), $jsonPlain, self::FIND_RUNNING],
+        ];
+        yield 'JSON path, another column the menu does not have' => [
+            '7.17.2 (stable)',
+            [$jsonRefusal, $jsonRows],
+            ['address', 'nosuchcol'],
+            array_map($only, $jsonAddresses),
+            [$json('address,nosuchcol'), $jsonPlain],
+        ];
+        yield 'text path, a flag the menu does not have' => [
+            '7.1 (stable)',
+            ["input does not match any value of value-name\n", $textRows, "\r\n"],
+            ['address', 'running'],
+            array_map($running, $textAddresses),
+            [$text('address,running'), $text(''), self::FIND_RUNNING],
+        ];
+        // [N] the text inside `:local r [...]` is unmeasured; a suffix like the other console errors carry
+        yield 'text path, another column the menu does not have, the reason with a position' => [
+            '7.16.2 (stable)',
+            ["input does not match any value of value-name (line 1 column 61)\n", $textRows],
+            ['address', 'nosuchcol'],
+            array_map($only, $textAddresses),
+            [$text('address,nosuchcol'), $text('')],
+        ];
+    }
+
+    /**
+     * @param list<string> $outputs
+     * @param list<string> $proplist
+     * @param list<array<string, string>> $rows
+     * @param list<string> $lines
+     */
+    #[DataProvider('unknownColumns')]
+    public function testUnknownColumnIsPrintedAgainWithoutProplist(
+        string $version,
+        array $outputs,
+        array $proplist,
+        array $rows,
+        array $lines,
+    ): void {
+        $ssh = new FakeSsh([$version . "\r\n", ...$outputs]);
+
+        $result = self::transport($ssh)->execute(
+            new Command('/ip/firewall/address-list', 'print', [], null, $proplist),
+        );
+
+        self::assertSame($rows, array_map(static function (array $row): array {
+            ksort($row);
+
+            return $row;
+        }, $result->rows));
+        self::assertSame($lines, array_slice($ssh->commands, 1));
+    }
+
+    /**
+     * M1: the second print is only for the refusal of an unknown column, only where a proplist was sent, and once.
+     *
+     * @return iterable<string, array{string, list<string>, list<string>}>
+     *         the answer to the version query, the outputs after it, the lines sent after it
+     */
+    public static function printRefusals(): iterable
+    {
+        $json = ':onerror e in={ :local r; :onerror p in={ :set r '
+            . '[/ip/firewall/address-list/print as-value proplist=address,running] } do={ :if ($p ~ '
+            . '"^bad parameter proplist") do={ :set r [/ip/firewall/address-list/print as-value] } else={ :error $p '
+            . '} }; :put [:serialize to=json options=json.no-string-conversion $r] } do={ :put ("probe " . $e) }';
+        $jsonPlain = ':onerror e in={ :put [:serialize to=json options=json.no-string-conversion '
+            . '[/ip/firewall/address-list/print as-value]] } do={ :put ("probe " . $e) }';
+        $jsonRefusal = "probe input does not match any value of value-name (:error; line 1)\r\n";
+        $text = ':local r [/ip firewall address-list print as-value proplist=address,running]; '
+            . CliCompilerTest::SER3;
+        $textPlain = ':local r [/ip firewall address-list print as-value]; ' . CliCompilerTest::SER3;
+        $textRefusal = "input does not match any value of value-name\n";
+        yield 'JSON path, another refusal' => [
+            '7.17.2 (stable)',
+            ["probe no such item (4) (:error; line 1)\r\n"],
+            [$json],
+        ];
+        yield 'text path, another refusal' => [
+            '7.1 (stable)',
+            ["expected end of command (line 1 column 39)\n"],
+            [$text],
+        ];
+        yield 'JSON path, the second print refused the same way' => [
+            '7.17.2 (stable)',
+            [$jsonRefusal, $jsonRefusal],
+            [$json, $jsonPlain],
+        ];
+        yield 'text path, the second print refused the same way' => [
+            '7.1 (stable)',
+            [$textRefusal, $textRefusal],
+            [$text, $textPlain],
+        ];
+        // 6.x is sent no proplist, so the refusal cannot be about one
+        yield 'text path below 7.1' => [
+            '6.49.23 (stable)',
+            [$textRefusal],
+            [$textPlain],
+        ];
+    }
+
+    /**
+     * @param list<string> $outputs
+     * @param list<string> $lines
+     */
+    #[DataProvider('printRefusals')]
+    public function testOtherRefusalOfAPrintIsATrapWithoutAnotherPrint(
+        string $version,
+        array $outputs,
+        array $lines,
+    ): void {
+        $ssh = new FakeSsh([$version . "\r\n", ...$outputs]);
+        $transport = self::transport($ssh);
+        try {
+            $transport->execute(new Command('/ip/firewall/address-list', 'print', [], null, ['address', 'running']));
+            self::fail('TrapException expected');
+        } catch (TrapException) {
+            self::assertTrue($transport->isOpen());
+            self::assertSame($lines, array_slice($ssh->commands, 1));
+        }
     }
 
     private static function transport(FakeSsh $ssh, string $charset = 'UTF-8'): SshTransport
