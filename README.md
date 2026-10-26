@@ -38,8 +38,8 @@ wrong data. Below 7.17 the library reads the console in another way than from 7.
 
 | | RouterOS |
 |---|---|
-| **tested on every CI run** (live suite against CHR) | 7.24.5 (JSON path), 6.49.18 (text path) |
-| **tested weekly** (live suite against CHR) | 7.23.8, 7.17.2 (JSON path); 7.16.2, 7.12.2, 7.1, 6.49.23 (installed as an upgrade from 6.49.20, see below), 6.43, 6.42.12, 6.34 (text path); 7.25rc3 of the testing channel (JSON path, allowed to fail) |
+| **tested on every GitLab CI run** (live suite against CHR) | 7.24.5, 6.49.18 |
+| **tested on code changes on GitHub** (live suite against CHR) | every version in [versions.txt](tools/chr/versions.txt), including text/json boundaries and the 6.49.23 upgrade |
 | **probed by hand, outside CI** (console commands through measurement scripts, not this test suite) | 7.17, 7.17.1, 7.13, 7.13.5; 6.33 from the x86 ISO |
 | **not verified** | every other version, among them 6.0–6.32, the 6.x releases between the measured ones (e.g. 6.43.1–6.49.17, 6.49.19–6.49.22), 7.0 (there is no CHR image of it) and the 7.x releases between the measured ones (above all 7.17.3–7.23.7 and 7.24.0–7.24.4) |
 | **not supported** | 5.x: its console does not report a failed write (`set` of a missing item, a bad value, a duplicate `add` print nothing), so a failure could not be told from success. Use `lossik/mikrotik-api` for 5.x |
@@ -325,7 +325,7 @@ tools/sshd/start.sh && vendor/bin/phpunit --group docker`); the CI job `docker` 
 
 The live suite runs against a real CHR in QEMU inside one `php` container, with Docker as the only requirement: see
 [tools/chr/README.md](tools/chr/README.md) for the local run. In CI it runs on every pipeline for 7.24.5 and 6.49.18
-and weekly for the rest of the [matrix](#supported-routeros), one version per job. The column `ssh-path` of
+and on GitHub code changes for the whole [matrix](#supported-routeros), one version per job. The column `ssh-path` of
 `tools/chr/versions.txt` says which path a version takes, and the tests of the other path (group `live-json` or
 `live-text`) are left out. On CHR 6.x the harness enables the `ipv6` package (installed but disabled on those
 images), which costs one extra reboot per job; 6.49.23 is booted from the 6.49.20 image and upgraded.
