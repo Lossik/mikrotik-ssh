@@ -33,7 +33,8 @@ final class QueryLiveTest extends LiveTestCase
      *
      * @return iterable<string, array{0: Query, 1: list<string>, 2: list<string>, 3?: list<string>}>
      *         the query, the API query words after `?list=…`, the addresses of the items the API selects, and the
-     *         addresses SSH selects where they differ from the API (otherwise SSH must select what the API selects)
+     *         addresses SSH selects where they differ from the API (otherwise SSH must select what the API selects;
+     *         the API selects them too below RouterOS 6.42)
      */
     public static function conditions(): iterable
     {
@@ -96,8 +97,9 @@ final class QueryLiveTest extends LiveTestCase
         ];
         // Q12 (a), user 26. 10. 2026: for an IPv4 operand the API compares an address-list address as text on
         // 6.42.12 ... 7.25rc3 and as an address on 6.34 (fx-live, 26. 10. 2026); the console (and so this library)
-        // always as an address. A README limit. SSH is pinned to the address order, the API to either measured order
-        // (the third column is the text order; the test does not ask the version).
+        // always as an address. A README limit. SSH is pinned to the address order (the fourth column) on every
+        // version, the API by version to its measured order: the text order (the third column) from 6.42.12, the
+        // address order on 6.34 (see the test).
         yield 'less than IPv4, a two-digit octet: the API compares text, SSH addresses (Q12 (a))' => [
             Query::and($list, Query::less('address', '10.97.2.10')),
             ['?<address=10.97.2.10', '?#&'],
@@ -181,12 +183,35 @@ final class QueryLiveTest extends LiveTestCase
 
         $rows = $this->client()->menu(self::LISTED)->print($query);
 
-        if ($sshExpected === null) {
-            self::assertSame($expected, $byApi);
-        } else {
-            self::assertContains($byApi, [$expected, $sshExpected], 'the API selects the text or the address order');
-        }
+        // An exception from "a test never asks the version" (like the 6.x exclusion of MenuLiveTest), a user decision
+        // (Q12 (a) / #49, 26. 10. 2026): with an IPv4 operand the API selects the address order on RouterOS 6.34 and
+        // the text order on every other version of the matrix (6.42.12 ... 7.25rc3).
+        $apiExpected = $sshExpected !== null && version_compare($this->env->chrVersion, '6.42', '<')
+            ? $sshExpected
+            : $expected;
+        self::assertSame($apiExpected, $byApi);
         self::assertSame($sshExpected ?? $byApi, array_column($rows, 'address'));
+    }
+
+    /**
+     * `has()` and `hasNot()` over a property with an empty value, the `address` of /ip/service (empty on a fresh
+     * router): the API `?address` is the existence of the property, also with an empty value, the console
+     * `address~"."` needs a character, so SSH sees those services in `hasNot()`. A user decision (a) of 26. 10. 2026
+     * (#51), a README limit (probe fy-has-empty on 7.24.5 and 6.49.18).
+     */
+    public function testHasOverAnEmptyValueIsExistenceOverTheApiAndANonEmptyValueOverSsh(): void
+    {
+        $router = $this->router();
+        $byApi = array_column($router->rows('/ip/service/print', ['?address', '=.proplist=name']), 'name');
+        $router->close();
+        $menu = $this->client()->menu('/ip/service');
+
+        $has = array_column($menu->print(Query::has('address'), ['name']), 'name');
+        $hasNot = array_column($menu->print(Query::hasNot('address'), ['name']), 'name');
+
+        self::assertNotSame([], $byApi);
+        self::assertSame([], array_values(array_intersect($byApi, $has)));
+        self::assertSame([], array_values(array_diff($byApi, $hasNot)));
     }
 
     /**

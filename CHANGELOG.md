@@ -48,10 +48,11 @@ of 2.x remains, so mixed code fails with "Class not found" instead of changing b
   `windows-1250`) converts every value of a command and the output with `iconv`, like `ApiOptions::$charset` of
   `lossik/mikrotik-api`. A value it cannot represent is an `\InvalidArgumentException` before anything is sent.
 - **Queries**: `Query` (`where`, `has`, `hasNot`, `less`, `greater`, `and`, `or`, `not`) replaces the `$where` array.
-  The console forms select the same rows as the API on both paths (except an IPv4 address in `less()`/`greater()`,
-  below), measured on RouterOS 6.34 … 7.24.5: `has()` is
-  the existence of a property, also of a flag (`k~"."`); `where(k, 'true'/'false')` is exact on a flag and on a
-  string attribute, also under `not()` (`k~"^true\$"`). `less()` and `greater()` accept only a non-negative integer
+  The console forms select the same rows as the API on both paths (except an IPv4 address in `less()`/`greater()`
+  and `has()`/`hasNot()` over an empty value, below), measured on RouterOS 6.34 … 7.24.5: `has()` is a non-empty
+  value of a property, also of a flag (`k~"."`), where the API `?k` is the existence of the property, also with an
+  empty value (the empty `address` of `/ip/service`: the API `has()` matches it, this library `hasNot()`);
+  `where(k, 'true'/'false')` is exact on a flag and on a string attribute, also under `not()` (`k~"^true\$"`). `less()` and `greater()` accept only a non-negative integer
   or an IPv4 address and refuse anything else with `UnsupportedOperationException` before anything is sent. An
   integer is compared like the API does; an IPv4 address is compared as an address, where the API of RouterOS
   6.42.12 … 7.25rc3 compares it as text, so the rows differ where text and address order differ (see the README). (Earlier development states of this branch sent a bare `k` for

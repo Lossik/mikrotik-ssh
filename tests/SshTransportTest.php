@@ -486,7 +486,7 @@ final class SshTransportTest extends TestCase
 
     /**
      * M1: the second print is only for a refusal of the proplist (an unknown column, a proplist on a singleton menu),
-     * only where a proplist was sent, and once.
+     * only where a proplist was sent, and once. A refused find line of the flag pass is a trap the same way.
      *
      * @return iterable<string, array{string, list<string>, list<string>}>
      *         the answer to the version query, the outputs after it, the lines sent after it
@@ -534,6 +534,13 @@ final class SshTransportTest extends TestCase
             '6.49.23 (stable)',
             ["expected end of command (line 1 column 39)\n"],
             [$textPlain],
+        ];
+        // O14 / Q4 (a): the print succeeded, the find line of the flag pass printed a console error instead of IDs;
+        // a trap, not "no item has the flag"
+        yield 'text path below 7.1, the find line of the flag pass refused' => [
+            '6.49.23 (stable)',
+            [ConsoleFixture::load('6.49.23-ser3-addresslist'), "syntax error (line 1 column 30)\n"],
+            [$textPlain, self::FIND_RUNNING],
         ];
     }
 

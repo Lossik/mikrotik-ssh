@@ -174,13 +174,14 @@ earlier items stay changed. The API does the same (measured on all 12 versions o
 
 `Query` conditions become a `where` of the console, the same on both paths. Every form below was compared with the
 API by console probes on RouterOS 6.34 … 7.24.5 (each on at least 6.34, 7.17.2 and 7.24.5) and selects the same
-rows, **except `less()`/`greater()` with an IPv4 address** (see below the table):
+rows, **except `less()`/`greater()` with an IPv4 address and `has()`/`hasNot()` over an empty value** (see below
+the table):
 
 | condition | console | note |
 |---|---|---|
 | `where(k, v)` | `k="v"` | `yes` and `no` stay unquoted (`k=yes`); `where(k, '')` matches nothing, as on the API |
 | `where(k, 'true')`, `where(k, 'false')` | `k~"^true\$"`, `k~"^false\$"` | exact on a flag (`disabled`) and on a string attribute (a `comment` "true"), also under `not()` |
-| `has(k)`, `hasNot(k)` | `k~"."`, `!(k~".")` | the existence of the property, also for a flag and an IP address: `has('disabled')` matches every item that has the property, not the disabled ones (as `?disabled` of the API) |
+| `has(k)`, `hasNot(k)` | `k~"."`, `!(k~".")` | a non-empty value of the property, also of a flag and an IP address: `has('disabled')` matches every item that has the property, not the disabled ones (as `?disabled` of the API); a property with an empty value counts as missing (see below the table) |
 | `less(k, v)`, `greater(k, v)` | `k<"v"`, `k>"v"` | **only a non-negative integer** (`0` or digits without a leading zero) **or an IPv4 address** without a prefix; anything else (a time like `1h`, an IPv6 address, a prefix, a negative or decimal number, a string) is an `UnsupportedOperationException` before anything is sent, because the console does not compare it like the API (a string: nothing on 6.x, every row on 7.x) |
 | `and()`, `or()`, `not()` | `a and b`, `(a or b)`, `!(…)` | |
 
@@ -189,6 +190,11 @@ rows, **except `less()`/`greater()` with an IPv4 address** (see below the table)
   also over an IP-typed attribute (6.34 compared addresses). `less('address', '10.97.3.10')` over the console
   matches `10.97.3.1` … `10.97.3.9`, over the API only `10.97.3.1`: wherever text order and address order differ,
   this library and `lossik/mikrotik-api` return different rows. An integer is compared the same on both.
+- **`has()` needs a non-empty value, `hasNot()` matches a missing or an empty one.** The console `k~"."` needs a
+  character, while the API `?k` is the existence of the property, also with an empty value. The empty `address` of
+  `/ip/service` on a fresh router: the API `has('address')` matches those services, this library matches them with
+  `hasNot('address')` and none of them with `has('address')` (measured on 6.49.18 and 7.24.5, checked by the live
+  suite on every version).
 - **An integer compared with a string attribute** (`less('comment', '5')`) is sent, but the API, the console of 6.x
   and the console of 7.x give three different results. The library does not know the type of an attribute, so it
   cannot refuse it: compare numbers only with numeric attributes.
@@ -304,6 +310,8 @@ cp1250 text written by 2.x is read back with `charset: 'windows-1250'`.
 - **`set` with several IDs is not atomic** (as on the API, see [Errors](#errors)).
 - **`less()`/`greater()`** accept only a non-negative integer or an IPv4 address, and an IPv4 address is compared
   as an address, where the API compares it as text (see [Queries](#queries)).
+- **`has()` means a non-empty value**, `hasNot()` a missing or an empty one; over the API `has()` is the
+  existence of the property, also with an empty value (see [Queries](#queries)).
 - **An account with an empty password logs in with any password** (phpseclib tries `none` first, see
   [Options](#options)).
 - **RouterOS 5.x is not supported** over SSH.
@@ -321,6 +329,12 @@ and weekly for the rest of the [matrix](#supported-routeros), one version per jo
 `tools/chr/versions.txt` says which path a version takes, and the tests of the other path (group `live-json` or
 `live-text`) are left out. On CHR 6.x the harness enables the `ipv6` package (installed but disabled on those
 images), which costs one extra reboot per job; 6.49.23 is booted from the 6.49.20 image and upgraded.
+
+The live tests do not ask the RouterOS version, except in two places, both a user decision of 26. 10. 2026 about a
+measured difference of RouterOS documented above: `MenuLiveTest` leaves out on 6.x (below 7.1) the attributes the
+6.x console does not print, and `QueryLiveTest` expects the API to compare an IPv4 address in `less()`/`greater()`
+as an address on 6.34 (below 6.42) and as text on every other version. Pinned by version, a change of either on a
+version of the matrix turns the suite red.
 
 ## Supported PHP
 
