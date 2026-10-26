@@ -7,14 +7,18 @@ namespace Lossik\Mikrotik\Ssh\Tests\Live;
 use Lossik\DeviceCommunication\Query;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
-use PHPUnit\Framework\Attributes\Medium;
+use PHPUnit\Framework\Attributes\Large;
 
 /**
  * The menus the first consumer uses, through the console (plan L14, SSH part; the API part is in mikrotik-api):
  * add, print, update and delete on each of them, `print` compared with what the API gives for the same item.
+ *
+ * Large: on RouterOS 6.34 (CHR under TCG) the case "/ip/firewall/nat" of testAddPrintUpdateDeleteOnTheMenu was aborted
+ * at the 10 s of a medium test (fx-live 26. 10. 2026, `probe/fx-live-6.34.log`:113-114); mikrotik-api made its
+ * MenuLiveTest large for the same reason (7.12.2).
  */
 #[Group('live')]
-#[Medium]
+#[Large]
 final class MenuLiveTest extends LiveTestCase
 {
     /**
