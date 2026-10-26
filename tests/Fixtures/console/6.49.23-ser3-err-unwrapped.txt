@@ -1,0 +1,1 @@
+bad command name nonexistent (line 1 column 15)\n

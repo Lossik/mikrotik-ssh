@@ -13,7 +13,8 @@ use Lossik\DeviceCommunication\TrapException;
 use Lossik\DeviceCommunication\UnsupportedOperationException;
 
 /**
- * Translates a Command to one line of the RouterOS CLI and the output of that line to a Result. Pure: no I/O.
+ * Compiles the JSON console path, shares query conditions with the ser3 path, and decodes JSON console output.
+ * Pure: no I/O.
  *
  *  - `print` → `:put [:serialize to=json options=json.no-string-conversion [/menu/print as-value proplist=… where …]]`,
  *    the JSON read back as rows with every value a string and, with a proplist, only the requested columns (the Result
@@ -32,10 +33,9 @@ use Lossik\DeviceCommunication\UnsupportedOperationException;
  * and, on that very error, prints without it, in the same console line (one round trip); an object is one row, and
  * the rows are reduced to the requested columns here either way. Any other error of the print is reported as it is.
  *
- * Every line is wrapped so that a failing command prints the marker and the reason of the console (see wrap()); the
- * marker in the output is a TrapException. Everything that is put into the line is checked first: names must be plain,
- * values are converted to the charset of the device and quoted as RouterOS strings, so an attribute cannot end the
- * command and start another.
+ * The JSON path wraps lines so a failing command prints a marker and the console reason. The text path deliberately
+ * leaves commands unwrapped and reports the raw console error. Names are checked and values are converted to the
+ * device charset before they are quoted as RouterOS strings.
  *
  * @internal
  */
@@ -43,7 +43,8 @@ final class CliCompiler
 {
     private const NAME = '/^[A-Za-z0-9._-]+$/';
 
-    private const MENU = '~^(/[A-Za-z0-9_-]+)*/?$~';
+    /** At least one level: the root menu `/` is refused (outside the plan, F-C2 m1: refused before anything is sent). */
+    private const MENU = '~^(/[A-Za-z0-9_-]+)+/?$~';
 
     private const ID_LIST = '/^\*[0-9A-Fa-f]+(,\*[0-9A-Fa-f]+)*$/';
 
@@ -83,6 +84,135 @@ final class CliCompiler
     }
 
     /**
+     * The line for the text console of RouterOS below 7.17 (the "ser3" path). The menu is written with spaces
+     * (`/ip address set`): RouterOS 6 rejects the slash form ("expected command name"). Nothing is wrapped: inside
+     * `:do … on-error` the reason is lost (`$error` is empty on every version), the bare console text is the reason.
+     *
+     *  - `print` → `:local r [/menu print as-value proplist=… where …]; :foreach …; :put "END"`, a serializer that
+     *    prints every value with its length in bytes (read back by TextParser). The proplist is sent from RouterOS
+     *    7.1 only (on 6.x it is a syntax error; an unknown version sends none), never with `.id`, which the console
+     *    rejects as a column ("input does not match any value of value-name") and prints anyway; the columns are
+     *    reduced after parsing either way;
+     *  - `add` → `:put [/menu add k="v" …]` (the output is the ID of the new item);
+     *  - any other verb → `/menu verb numbers=*1,*2 k="v" …`, which prints nothing on success.
+     *
+     * Call it with $version null to check a command before the version of the device is known: it refuses exactly
+     * what it refuses with a version.
+     *
+     * @param ?string $version the RouterOS version as ConsolePath parsed it (`6.49.23`), null when unknown
+     * @throws UnsupportedOperationException a menu, verb, name or query the console line cannot express
+     * @throws \InvalidArgumentException a value cannot be converted to the charset
+     */
+    public static function compileText(Command $command, string $charset, ?string $version): string
+    {
+        $path = self::spacedMenu($command->menu) . ' ' . self::verb($command);
+        if ($command->verb !== 'print') {
+            // add: `.id` stays an attribute, as on the JSON path; the other verbs take the item as `numbers=`
+            $line = self::withAttributes($path, $command->attributes, $command->verb !== 'add', $charset);
+
+            return $command->verb === 'add' ? ':put [' . $line . ']' : $line;
+        }
+        if ($command->attributes !== []) {
+            throw new UnsupportedOperationException('print takes no attributes; use the query and the proplist');
+        }
+        foreach ($command->proplist as $name) {
+            self::assertName($name, 'proplist entry');
+        }
+        $line = $path . ' as-value';
+        $columns = array_values(array_diff($command->proplist, ['.id']));
+        if ($columns !== [] && $version !== null && version_compare($version, '7.1', '>=')) {
+            $line .= ' proplist=' . implode(',', $columns);
+        }
+        if ($command->query !== null) {
+            $line .= ' where ' . self::condition($command->query, true, $charset);
+        }
+
+        return ':local r [' . $line . ']; '
+            . ':foreach k,v in=$r do={ :if ([:typeof $k]="num") do={ :foreach fk,fv in=$v do={ '
+            . ':if ([:typeof $fv]="array") do={ :put ($fk . ":A:" . [:len $fv]); '
+            . ':foreach e in=$fv do={ :put ("E:" . [:typeof $e] . ":" . [:len $e] . ":" . $e) } } '
+            . 'else={ :put ($fk . ":S:" . [:len $fv] . ":" . $fv) } }; :put "--" } else={ '
+            . ':if ([:typeof $v]="array") do={ :put ($k . ":A:" . [:len $v]); '
+            . ':foreach e in=$v do={ :put ("E:" . [:typeof $e] . ":" . [:len $e] . ":" . $e) } } '
+            . 'else={ :put ($k . ":S:" . [:len $v] . ":" . $v) } } }; :put "END"';
+    }
+
+    /**
+     * The line of the flag pass, the same on both paths (the spaced menu works on RouterOS 6.34 … 7.24.5, the slash
+     * form not on 6.x): the IDs of the items whose flag is true, printed as `*6;*c` (lower case), nothing when none.
+     *
+     * @param string $menu the menu of the Command (`/ip/firewall/address-list`)
+     * @param string $flag `disabled`, `dynamic`, `invalid` or `running`
+     */
+    public static function flagQuery(string $menu, string $flag): string
+    {
+        self::assertName($flag, 'flag');
+
+        return ':put [' . self::spacedMenu($menu) . ' find where ' . $flag . '~"^true\\$"]';
+    }
+
+    /**
+     * The Result of a non-print line made by compileText(). The exit status of the console is never used (0 on
+     * errors on 6.43 and older and on 7.24.5); a failure is the text the console printed.
+     *
+     *  - `add`: an ID (`*1b`) is the ID of the new item, in upper case like every `.id` of the rows; anything else,
+     *    nothing included, is a TrapException;
+     *  - any other verb: nothing printed is success, anything printed is a TrapException.
+     *
+     * @param string $charset the charset of the device; the text of a TrapException is converted from it to UTF-8
+     * @throws TrapException the console refused the command (category null, no traps)
+     * @throws ProtocolException the text of the refusal is not valid in the charset
+     */
+    public static function textResult(Command $command, string $output, string $charset = 'UTF-8'): Result
+    {
+        $text = trim($output);
+        if ($command->verb === 'add') {
+            if (preg_match(self::ID, $text) === 1) {
+                return new Result([], strtoupper($text));
+            }
+            throw new TrapException(
+                $text === '' ? sprintf('%s add did not return an ID', $command->menu) : self::decode($text, $charset),
+            );
+        }
+        if ($text !== '') {
+            throw new TrapException(self::decode($text, $charset));
+        }
+
+        return new Result([]);
+    }
+
+    /**
+     * Output of the device converted from its charset to UTF-8.
+     *
+     * @throws ProtocolException the output is not valid in the charset
+     */
+    public static function decode(string $output, string $charset): string
+    {
+        return self::fromDevice($output, $charset);
+    }
+
+    /**
+     * `/ip/firewall/address-list` → `/ip firewall address-list` (the Command has already checked nothing).
+     *
+     * @throws UnsupportedOperationException the root menu or a menu with other characters
+     */
+    private static function spacedMenu(string $menu): string
+    {
+        if (preg_match(self::MENU, $menu) !== 1) {
+            throw new UnsupportedOperationException(sprintf('Menu %s cannot be used in a CLI line', $menu));
+        }
+
+        return '/' . str_replace('/', ' ', trim($menu, '/'));
+    }
+
+    private static function verb(Command $command): string
+    {
+        self::assertName($command->verb, 'verb');
+
+        return $command->verb;
+    }
+
+    /**
      * The Result of a line made by compile().
      *
      * @param string $charset the charset of the device; the output is converted from it to UTF-8
@@ -90,8 +220,13 @@ final class CliCompiler
      * @throws ProtocolException the output is not valid in the charset, or a print answered with valid JSON that is
      *                           neither a list of objects nor one object
      */
-    public static function result(Command $command, string $output, string $marker, string $charset = 'UTF-8'): Result
-    {
+    public static function result(
+        Command $command,
+        string $output,
+        string $marker,
+        string $charset = 'UTF-8',
+        bool $project = true,
+    ): Result {
         $text = trim(self::fromDevice($output, $charset));
         $at = strpos($text, $marker);
         if ($at !== false) {
@@ -100,8 +235,8 @@ final class CliCompiler
         }
 
         return match ($command->verb) {
-            'print' => new Result(self::rows($text, $command->proplist)),
-            'add' => self::added($text),
+            'print' => new Result(self::rows($text, $project ? $command->proplist : [])),
+            'add' => self::added($command, $text),
             default => $text === '' ? new Result([]) : throw new TrapException($text),
         };
     }
@@ -197,14 +332,14 @@ final class CliCompiler
         return $line;
     }
 
-    private static function condition(Query $query, bool $top, string $charset): string
+    public static function condition(Query $query, bool $top, string $charset): string
     {
         return match ($query->operator) {
-            QueryOperator::Where => self::name($query) . '=' . self::comparand((string) $query->value, $charset),
-            QueryOperator::Less => self::name($query) . '<' . self::literal((string) $query->value, $charset),
-            QueryOperator::Greater => self::name($query) . '>' . self::literal((string) $query->value, $charset),
-            QueryOperator::Has => self::name($query),
-            QueryOperator::HasNot => '!' . self::name($query),
+            QueryOperator::Where => self::where($query, $charset),
+            QueryOperator::Less => self::comparison($query, '<', $charset),
+            QueryOperator::Greater => self::comparison($query, '>', $charset),
+            QueryOperator::Has => self::name($query) . '~"."',
+            QueryOperator::HasNot => '!(' . self::name($query) . '~".")',
             QueryOperator::And => self::join($query, ' and ', $top, $charset),
             QueryOperator::Or => self::join($query, ' or ', $top, $charset),
             QueryOperator::Not => '!(' . self::condition($query->operands[0], true, $charset) . ')',
@@ -212,20 +347,46 @@ final class CliCompiler
     }
 
     /**
-     * What `where name=…` compares with. The query does not know the type of the attribute, and a quoted "true" or
-     * "yes" matches no boolean (`disabled`, `dynamic`, `running` …), while the API takes `?disabled=yes` and
-     * `?disabled=true` for a boolean and compares a string attribute as text. Measured (RouterOS 7.23.8, 7.24.5): an
-     * unquoted `yes` / `no` does exactly that on both kinds of attribute, and so does `[:tobool "true"]` /
-     * `[:tobool "false"]` (unquoted `true` is an error on a boolean); other spellings (`Yes`, `1`) match nothing
-     * on either side and stay quoted strings.
+     * What `where name=…` compares with. The query does not know the attribute type. The exact regex for true/false is
+     * handled by where(); yes/no stay unquoted and other spellings stay quoted strings.
      */
     private static function comparand(string $value, string $charset): string
     {
         return match ($value) {
             'yes', 'no' => $value,
-            'true', 'false' => '[:tobool "' . $value . '"]',
             default => self::literal($value, $charset),
         };
+    }
+
+    private static function nameForComparand(string $value): string
+    {
+        return '~"^' . $value . '\\$"';
+    }
+
+    private static function where(Query $query, string $charset): string
+    {
+        $name = self::name($query);
+        $value = (string) $query->value;
+        if ($value === 'true' || $value === 'false') {
+            return $name . self::nameForComparand($value);
+        }
+
+        return $name . '=' . self::comparand($value, $charset);
+    }
+
+    private static function comparison(Query $query, string $operator, string $charset): string
+    {
+        $value = (string) $query->value;
+        if (
+            preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) !== 1
+            && filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false
+        ) {
+            throw new UnsupportedOperationException(
+                'Less and Greater support only non-negative integers and IPv4 addresses',
+            );
+        }
+
+        return self::name($query) . $operator . self::literal($value, $charset);
     }
 
     private static function join(Query $query, string $glue, bool $top, string $charset): string
@@ -300,16 +461,19 @@ final class CliCompiler
         return $converted;
     }
 
-    private static function added(string $text): Result
+    /**
+     * @throws TrapException nothing printed, or something other than an ID
+     */
+    private static function added(Command $command, string $text): Result
     {
         if ($text === '') {
-            return new Result([]);
+            throw new TrapException(sprintf('%s add did not return an ID', $command->menu));
         }
         if (preg_match(self::ID, $text) !== 1) {
             throw new TrapException($text);
         }
 
-        return new Result([], $text);
+        return new Result([], strtoupper($text));
     }
 
     /**

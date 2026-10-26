@@ -1,0 +1,1 @@
+.id:S:2:*1\r\naddress:S:8:10.0.0.1\r\ncomment:S:5:plain\r\ncreation-time:S:20:oct/22/2026 15:42:44\r\nlist:S:2:p2\r\n--\r\nbad command name nonexistent (line 1 column 599)\n

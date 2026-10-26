@@ -1,0 +1,1 @@
+.id:S:2:*6\r\naddress:S:8:10.8.0.1\r\ncomment:S:1:x\r\nlist:S:1:b\r\n--\r\n.id:S:2:*8\r\naddress:S:8:10.8.0.3\r\ncomment:S:3:yes\r\nlist:S:1:b\r\n--\r\n.id:S:2:*9\r\naddress:S:8:10.8.0.4\r\ncomment:S:5:false\r\nlist:S:1:b\r\n--\r\n.id:S:2:*A\r\naddress:S:8:10.8.0.5\r\ncomment:S:2:no\r\nlist:S:1:b\r\n--\r\nEND\r\n
