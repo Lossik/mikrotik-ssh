@@ -94,9 +94,10 @@ final class QueryLiveTest extends LiveTestCase
             ['?>address=10.97.2.2', '?#&'],
             ['10.97.2.3', '10.97.2.4'],
         ];
-        // Q12 (a), user 26. 10. 2026: for an IPv4 operand the API compares an address-list address as text, the
-        // console (and so this library) as an address; a README limit. Both sides are pinned to what was measured
-        // (fx-ipv4-7.24.5.txt, fx-ipv4-6.49.18.txt), not to each other.
+        // Q12 (a), user 26. 10. 2026: for an IPv4 operand the API compares an address-list address as text on
+        // 6.42.12 ... 7.25rc3 and as an address on 6.34 (fx-live, 26. 10. 2026); the console (and so this library)
+        // always as an address. A README limit. SSH is pinned to the address order, the API to either measured order
+        // (the third column is the text order; the test does not ask the version).
         yield 'less than IPv4, a two-digit octet: the API compares text, SSH addresses (Q12 (a))' => [
             Query::and($list, Query::less('address', '10.97.2.10')),
             ['?<address=10.97.2.10', '?#&'],
@@ -180,7 +181,11 @@ final class QueryLiveTest extends LiveTestCase
 
         $rows = $this->client()->menu(self::LISTED)->print($query);
 
-        self::assertSame($expected, $byApi);
+        if ($sshExpected === null) {
+            self::assertSame($expected, $byApi);
+        } else {
+            self::assertContains($byApi, [$expected, $sshExpected], 'the API selects the text or the address order');
+        }
         self::assertSame($sshExpected ?? $byApi, array_column($rows, 'address'));
     }
 
