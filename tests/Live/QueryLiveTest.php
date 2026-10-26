@@ -198,20 +198,54 @@ final class QueryLiveTest extends LiveTestCase
      * router): the API `?address` is the existence of the property, also with an empty value, the console
      * `address~"."` needs a character, so SSH sees those services in `hasNot()`. A user decision (a) of 26. 10. 2026
      * (#51), a README limit (probe fy-has-empty on 7.24.5 and 6.49.18).
+     *
+     * The oracle is one API print of every service, compared by `.id` (names repeat: the dynamic `api` and `ssh`
+     * rows of 7.x): SSH `has()` is exactly the services with a non-empty address, `hasNot()` exactly the rest. The
+     * API `?address` / `?-address` are checked for what the live runs measured on 7.24.5, 6.49.18 and 6.34: `has`
+     * selects something, covers every non-empty address, and the two split all services between them.
      */
     public function testHasOverAnEmptyValueIsExistenceOverTheApiAndANonEmptyValueOverSsh(): void
     {
         $router = $this->router();
-        $byApi = array_column($router->rows('/ip/service/print', ['?address', '=.proplist=name']), 'name');
+        $all = [];
+        $nonEmpty = [];
+        foreach ($router->rows('/ip/service/print', ['=.proplist=.id,name,address']) as $row) {
+            $all[] = $row['.id'];
+            if (($row['address'] ?? '') !== '') {
+                $nonEmpty[] = $row['.id'];
+            }
+        }
+        $apiHas = self::ids($router->rows('/ip/service/print', ['?address', '=.proplist=.id']));
+        $apiHasNot = self::ids($router->rows('/ip/service/print', ['?-address', '=.proplist=.id']));
         $router->close();
         $menu = $this->client()->menu('/ip/service');
 
-        $has = array_column($menu->print(Query::has('address'), ['name']), 'name');
-        $hasNot = array_column($menu->print(Query::hasNot('address'), ['name']), 'name');
+        $has = self::ids($menu->print(Query::has('address'), ['.id']));
+        $hasNot = self::ids($menu->print(Query::hasNot('address'), ['.id']));
 
-        self::assertNotSame([], $byApi);
-        self::assertSame([], array_values(array_intersect($byApi, $has)));
-        self::assertSame([], array_values(array_diff($byApi, $hasNot)));
+        sort($all);
+        sort($nonEmpty);
+        $empty = array_values(array_diff($all, $nonEmpty));
+        self::assertSame($nonEmpty, $has, 'SSH has(): the services with a non-empty address');
+        self::assertSame($empty, $hasNot, 'SSH hasNot(): every other service');
+        self::assertNotSame([], $apiHas);
+        self::assertSame([], array_values(array_diff($nonEmpty, $apiHas)), 'API ?address covers every non-empty one');
+        self::assertSame([], array_values(array_intersect($apiHas, $apiHasNot)), 'API ?address and ?-address');
+        $split = [...$apiHas, ...$apiHasNot];
+        sort($split);
+        self::assertSame($all, $split, 'API ?address and ?-address split all services');
+    }
+
+    /**
+     * @param list<array<string, string>> $rows
+     * @return list<string> the `.id`s, sorted
+     */
+    private static function ids(array $rows): array
+    {
+        $ids = array_column($rows, '.id');
+        sort($ids);
+
+        return $ids;
     }
 
     /**

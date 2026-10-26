@@ -101,6 +101,10 @@ final class CliCompilerTest extends TestCase
             new Command('/interface', 'disable', ['.id' => 'ether1']),
             '/interface/disable numbers="ether1"',
         ];
+        yield 'an ID with a trailing line break is a quoted value' => [
+            new Command('/ip/address', 'remove', ['.id' => "*A\n"]),
+            '/ip/address/remove numbers="*A\\n"',
+        ];
         yield 'a value cannot end the command' => [
             new Command('/ip/address', 'set', ['.id' => '*1', 'comment' => '"; /system reset; "']),
             '/ip/address/set numbers=*1 comment="\\"; /system reset; \\""',
@@ -171,6 +175,7 @@ final class CliCompilerTest extends TestCase
             new Command('/ip/address', 'print', [], Query::not(Query::has('a;b'))),
         ];
         yield 'attribute name with =' => [new Command('/ip/address', 'add', ['a=b' => '1'])];
+        yield 'attribute name with a trailing line break' => [new Command('/ip/address', 'add', ["comment\n" => '1'])];
         yield 'proplist entry with a space' => [new Command('/ip/address', 'print', [], null, ['a b'])];
         yield 'verb that starts another command' => [new Command('/ip/address', 'print; /system/reset')];
         yield 'menu that starts another command' => [new Command('/ip/address; /system/reset', 'print')];

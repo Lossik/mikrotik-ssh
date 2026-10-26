@@ -43,14 +43,15 @@ use Lossik\DeviceCommunication\UnsupportedOperationException;
  */
 final class CliCompiler
 {
-    private const NAME = '/^[A-Za-z0-9._-]+$/';
+    // `D`: without it `$` also matches before a trailing LF, which would end the console line
+    private const NAME = '/^[A-Za-z0-9._-]+$/D';
 
     /** At least one level: the root menu `/` is refused (outside the plan, F-C2 m1: refused before anything is sent). */
-    private const MENU = '~^(/[A-Za-z0-9_-]+)+/?$~';
+    private const MENU = '~^(/[A-Za-z0-9_-]+)+/?$~D';
 
-    private const ID_LIST = '/^\*[0-9A-Fa-f]+(,\*[0-9A-Fa-f]+)*$/';
+    private const ID_LIST = '/^\*[0-9A-Fa-f]+(,\*[0-9A-Fa-f]+)*$/D';
 
-    private const ID = '/^\*[0-9A-Fa-f]+$/';
+    private const ID = '/^\*[0-9A-Fa-f]+$/D';
 
     /**
      * Without it `:serialize` turns a string that looks like a number into a number (`007` → 7, `1e3` → 1000,

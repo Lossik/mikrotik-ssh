@@ -101,8 +101,8 @@ same for `FileTransfer::connect()`. All times are seconds, all arguments of `Ssh
 | option | default | meaning |
 |---|---|---|
 | `port` | `22` | the SSH port |
-| `connectTimeout` | `10.0` | one limit for opening the TCP connection and receiving the SSH banner together, and the timeout phpseclib gets for the key exchange and the login; running out is a `TimeoutException` with `->limit === 'connectTimeout'` |
-| `responseTimeout` | `60.0` | how long to wait for the output of one console command (`SshTransport`) or for the reply to one SFTP request (`FileTransfer`); `null` = no limit. The console answers within a fraction of a second, so the limit only guards against a device that went silent; raise it for commands that run long and for large tables on the [text path](#two-console-paths) |
+| `connectTimeout` | `10.0` | one limit for opening the TCP connection and receiving the SSH banner together, then a separate limit of `ceil(connectTimeout)` that phpseclib gets for the key exchange and the login; running out is a `TimeoutException` with `->limit === 'connectTimeout'` |
+| `responseTimeout` | `60.0` | how long to wait for the output of each console command the transport runs (`SshTransport`) or for the reply to one SFTP request (`FileTransfer`); `null` = no limit. One `execute()` may run several console commands (the version query once per connection, the print, one retry without the proplist, one query per missing flag), each with the full limit, so it does not limit the whole `execute()`. The console answers within a fraction of a second, so the limit only guards against a device that went silent; raise it for commands that run long and for large tables on the [text path](#two-console-paths) |
 | `charset` | `'UTF-8'` | `SshTransport` only: the charset of the text on the device, see [Charset](#charset) |
 
 The password is always sent, an empty one too (2.x used the SSH method `none` for an empty one). phpseclib itself

@@ -40,7 +40,7 @@ of 2.x remains, so mixed code fails with "Class not found" instead of changing b
   `ConnectionException`; a `TrapException` leaves it open.
 - **Time limits**: `connectTimeout` 10 s (one limit for TCP and the SSH banner, and phpseclib's timeout for the key
   exchange and the login) and `responseTimeout`
-  60 s for the output of one command or one SFTP request (`null` = none); a device that goes silent ends the call
+  60 s for the output of each console command (one `execute()` may run several) or one SFTP request (`null` = none); a device that goes silent ends the call
   with `TimeoutException` and closes the transport.
 - **Login**: the password is always sent, an empty one too (2.x used the SSH method `none` for an empty one).
   phpseclib still tries `none` first, so an account with an empty password logs in with any password.
