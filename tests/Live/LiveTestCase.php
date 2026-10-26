@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Lossik\Mikrotik\Ssh\Tests\Live;
 
 use Lossik\DeviceCommunication\Client;
+use Lossik\Mikrotik\Ssh\Connector;
 use Lossik\Mikrotik\Ssh\FileTransfer;
 use Lossik\Mikrotik\Ssh\SshOptions;
 use Lossik\Mikrotik\Ssh\SshTransport;
@@ -61,6 +62,9 @@ abstract class LiveTestCase extends TestCase
     /** @var list<SshTransport|FileTransfer> */
     private array $connections = [];
 
+    /** The session of {@see self::execRaw()}. */
+    private ?SSH2 $rawSession = null;
+
     protected function setUp(): void
     {
         $this->env = Env::load();
@@ -71,6 +75,8 @@ abstract class LiveTestCase extends TestCase
         foreach ($this->connections as $connection) {
             $connection->close();
         }
+        $this->rawSession?->disconnect();
+        $this->rawSession = null;
         // without the environment (setUp failed) there is no router to clean
         if (isset($this->env)) {
             $this->removeWhatTheTestLeft();
@@ -128,22 +134,30 @@ abstract class LiveTestCase extends TestCase
     }
 
     /**
-     * Runs one raw console line on the shared admin SSH session (for bulk fixture setup and cleanup, OL9) and fails
-     * the test with the console output when the line printed anything (the lines it runs print nothing when they
-     * succeed) or ended with an exit status other than 0 (a refused line: 1, `fd-ssh-probe-7.16.2.txt`). The SSH
-     * session is reached by reflection: SshTransport has no raw exec, and a session of its own would cost another
-     * login.
+     * Runs one raw console line (bulk fixture setup and cleanup, OL9) on an admin SSH session of its own, opened on
+     * the first call and closed in tearDown, and fails the test with the console output when the line timed out,
+     * printed anything (the lines it runs print nothing when they succeed) or ended with an exit status other than 0
+     * (a refused line: 1, `fd-ssh-probe-7.16.2.txt`). Not the shared session: a line that outlasts its timeout
+     * leaves the channel open, and the next command of that session would fail with "Please close the channel".
      */
     protected function execRaw(string $line): void
     {
-        $ssh = (new \ReflectionProperty(SshTransport::class, 'ssh'))->getValue($this->transport());
-        self::assertInstanceOf(SSH2::class, $ssh);
-        $output = $ssh->exec($line);
-        $status = $ssh->getExitStatus();
-        if (!is_string($output) || trim($output) !== '' || ($status !== false && $status !== 0)) {
+        // 300 s: the fixture is not under test, and the 300 adds of PrintManyRowsLiveTest passed 60 s on 7.25rc3
+        $this->rawSession ??= Connector::open(
+            SSH2::class,
+            $this->env->host,
+            $this->env->user,
+            $this->env->password,
+            $this->env->options(300.0),
+        );
+        $output = $this->rawSession->exec($line);
+        $timedOut = $this->rawSession->isTimeout();
+        $status = $this->rawSession->getExitStatus();
+        if ($timedOut || !is_string($output) || trim($output) !== '' || ($status !== false && $status !== 0)) {
             self::fail(sprintf(
-                "The console refused %s (exit status %s):\n%s",
+                "The console refused %s (%s, exit status %s):\n%s",
                 $line,
+                $timedOut ? 'timed out' : 'finished',
                 var_export($status, true),
                 var_export($output, true),
             ));

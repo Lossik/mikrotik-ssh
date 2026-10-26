@@ -31,8 +31,9 @@ final class QueryLiveTest extends LiveTestCase
     /**
      * Four items: .1 comment x, .2 no comment, .3 comment Příliš (disabled), .4 comment x.
      *
-     * @return iterable<string, array{Query, list<string>, list<string>}>
-     *         the query, the API query words after `?list=…`, the addresses of the items it selects
+     * @return iterable<string, array{0: Query, 1: list<string>, 2: list<string>, 3?: list<string>}>
+     *         the query, the API query words after `?list=…`, the addresses of the items the API selects, and the
+     *         addresses SSH selects where they differ from the API (otherwise SSH must select what the API selects)
      */
     public static function conditions(): iterable
     {
@@ -93,15 +94,19 @@ final class QueryLiveTest extends LiveTestCase
             ['?>address=10.97.2.2', '?#&'],
             ['10.97.2.3', '10.97.2.4'],
         ];
-        // OL5: the last octet 10 against 1 … 4 tells a numeric comparison from a text one ("10.97.2.2" > "10.97.2.10")
-        yield 'less than IPv4, a two-digit octet' => [
+        // Q12 (a), user 26. 10. 2026: for an IPv4 operand the API compares an address-list address as text, the
+        // console (and so this library) as an address; a README limit. Both sides are pinned to what was measured
+        // (fx-ipv4-7.24.5.txt, fx-ipv4-6.49.18.txt), not to each other.
+        yield 'less than IPv4, a two-digit octet: the API compares text, SSH addresses (Q12 (a))' => [
             Query::and($list, Query::less('address', '10.97.2.10')),
             ['?<address=10.97.2.10', '?#&'],
+            ['10.97.2.1'],
             $all,
         ];
-        yield 'greater than IPv4, a two-digit octet' => [
+        yield 'greater than IPv4, a two-digit octet: the API compares text, SSH addresses (Q12 (a))' => [
             Query::and($list, Query::greater('address', '10.97.2.10')),
             ['?>address=10.97.2.10', '?#&'],
+            ['10.97.2.2', '10.97.2.3', '10.97.2.4'],
             [],
         ];
         yield 'or' => [
@@ -150,10 +155,15 @@ final class QueryLiveTest extends LiveTestCase
     /**
      * @param list<string> $apiWords
      * @param list<string> $expected
+     * @param list<string>|null $sshExpected null: SSH selects what the API selects
      */
     #[DataProvider('conditions')]
-    public function testConditionSelectsTheItemsTheApiSelects(Query $query, array $apiWords, array $expected): void
-    {
+    public function testConditionSelectsTheItemsTheApiSelects(
+        Query $query,
+        array $apiWords,
+        array $expected,
+        ?array $sshExpected = null,
+    ): void {
         $router = $this->router();
         $router->add(self::LISTED, ['list' => self::LIST, 'address' => '10.97.2.1', 'comment' => 'x']);
         $router->add(self::LISTED, ['list' => self::LIST, 'address' => '10.97.2.2']);
@@ -171,7 +181,7 @@ final class QueryLiveTest extends LiveTestCase
         $rows = $this->client()->menu(self::LISTED)->print($query);
 
         self::assertSame($expected, $byApi);
-        self::assertSame($byApi, array_column($rows, 'address'));
+        self::assertSame($sshExpected ?? $byApi, array_column($rows, 'address'));
     }
 
     /**
