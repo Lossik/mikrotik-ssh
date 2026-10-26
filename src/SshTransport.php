@@ -29,8 +29,15 @@ use phpseclib3\Net\SSH2;
  */
 final class SshTransport implements Transport
 {
-    /** The console's refusal of a column the menu does not have in the proplist (RouterOS 7.1 … 7.24.5). */
-    private const UNKNOWN_COLUMN = 'input does not match any value of value-name';
+    /**
+     * The console's refusals of a print's proplist, after which the print runs once more without it (M1): a column
+     * the menu does not have (RouterOS 7.1 … 7.24.5), and any proplist on a singleton menu such as /system/resource,
+     * refused while the line is parsed (RouterOS 7.1 … 7.17.2, on both paths; F-D ssh, OL10).
+     */
+    private const PROPLIST_REFUSALS = [
+        'input does not match any value of value-name',
+        'expected end of command',
+    ];
 
     private ?SSH2 $ssh;
 
@@ -44,7 +51,8 @@ final class SshTransport implements Transport
     }
 
     /**
-     * Opens the connection and logs in; the password is always sent, an empty one too.
+     * Opens the connection and logs in; the password is always sent, an empty one too. phpseclib tries the `none`
+     * method first, so an account with an empty password logs in whatever password is given.
      *
      * @throws TimeoutException the SSH banner, handshake or login did not finish within connectTimeout
      * @throws ConnectionException the device is unreachable or closed the connection
@@ -67,8 +75,9 @@ final class SshTransport implements Transport
      * unreadable answer included, the text line of CliCompiler::compileText() read by TextParser. consolePath()
      * tells which.
      *
-     * A print whose proplist names a column the menu does not have is sent once more without the proplist (RouterOS
-     * 7.1 and newer refuse such a column; see fillFlags()).
+     * A print whose proplist the console refuses is sent once more without the proplist, one more exec: a column the
+     * menu does not have (RouterOS 7.1 and newer; see fillFlags()), and any proplist on a singleton menu such as
+     * /system/resource (RouterOS 7.1 … 7.17.2; so every Client::version() there costs two execs).
      *
      * A change of several items is not atomic, on either path, like on the API: `set numbers=*1,*FFFF` changes `*1`
      * and then fails with "no such item" for `*FFFF` (TrapException; `*1` stays changed).
@@ -111,15 +120,19 @@ final class SshTransport implements Transport
             } catch (TrapException $e) {
                 // M1 (owner's decision, outside the plan): a column the menu does not have in the proplist is refused
                 // from RouterOS 7.1 on both paths; the print runs once more without the proplist, as on 6.x, and the
-                // columns are reduced here. Unmeasured [N]: that `proplist=running` on /ip/firewall/address-list
-                // gives the same error as the measured `proplist=nosuchcol` (pl-unknown), and its exact text inside
-                // `:local r [...]` of the text path (hence str_contains: a suffix like ` (line 1 column N)`, or the
-                // `(:error; line 1)` of the JSON path)
+                // columns are reduced here. `proplist=running` on /ip/firewall/address-list gives the same error as
+                // `proplist=nosuchcol` (pl-unknown): measured, F-D ssh MenuLiveTest green on 6.34 … 7.25rc3. Still
+                // unmeasured [N]: its exact text inside `:local r [...]` of the text path (hence str_contains: a
+                // suffix like ` (line 1 column N)`, or the `(:error; line 1)` of the JSON path). The second trigger
+                // (owner's decision after F-D ssh, OL10): RouterOS 7.1 … 7.17.2 refuse any proplist on a singleton
+                // menu with `expected end of command (line 1 column N)` while parsing the line, on the JSON path
+                // before the inner `:onerror` can fall back. Another syntax error of the line is refused by the plain
+                // print, too, at the cost of that one more exec.
                 $plain = new Command($command->menu, 'print', [], $command->query);
                 $plainLine = $text
                     ? CliCompiler::compileText($plain, $this->charset, $this->routerOsVersion)
                     : CliCompiler::compile($plain, $this->marker, $this->charset);
-                if ($plainLine === $line || !str_contains($e->getMessage(), self::UNKNOWN_COLUMN)) {
+                if ($plainLine === $line || !self::refusesProplist($e->getMessage())) {
                     // no proplist was sent (6.x, an unknown version, only `.id`), or another refusal
                     throw $e;
                 }
@@ -159,6 +172,17 @@ final class SshTransport implements Transport
             : CliCompiler::result($command, $output, $this->marker, $this->charset, false)->rows;
     }
 
+    /** The console refused the proplist of a print (PROPLIST_REFUSALS). */
+    private static function refusesProplist(string $refusal): bool
+    {
+        foreach (self::PROPLIST_REFUSALS as $needle) {
+            if (str_contains($refusal, $needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private function exec(string $line, string $what): string
     {
         $ssh = $this->ssh;
@@ -193,7 +217,8 @@ final class SshTransport implements Transport
      * A flag the menu does not have: `find` finds nothing, the rows get `'false'` where the API has no such key. That
      * holds on every version and both paths: from 7.1 the console refuses a column the menu does not have in the
      * proplist ("input does not match any value of value-name"), and execute() then prints once more without the
-     * proplist, as on 6.x (one more exec, only on that error; any error of the second print is a TrapException). A
+     * proplist, as on 6.x (one more exec, only on that error or on the refusal of a proplist on a singleton menu,
+     * "expected end of command"; any error of the second print is a TrapException). A
      * requested column that is not a flag and that the menu does not have is simply absent from the rows (unmeasured
      * [N]: that the API omits it, too). Known limit after that second print, the same as on 6.x: the attributes the
      * console prints only when the proplist names them (`actual-interface`, `routes`, `ipv6-routes`,

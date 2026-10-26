@@ -357,55 +357,103 @@ final class SshTransportTest extends TestCase
      * M1 (gate brana-otazky-m1.md (b)): from RouterOS 7.1 the console refuses a column the menu does not have in the
      * proplist (`c-out-7.1-console.txt` pl-unknown, JSON path `g1-single-7.23.8.txt`); the print runs once more
      * without it, then the flag pass as on 6.x. A flag the menu does not have is `'false'`, another column is absent.
+     * The same for any proplist on a singleton menu, which RouterOS 7.1 … 7.17.2 refuse while parsing the line
+     * (F-D ssh, OL10: `expected end of command`, on the JSON path bare, before any `:onerror` runs).
      *
-     * @return iterable<string, array{string, list<string>, list<string>, list<array<string, string>>, list<string>}>
-     *         the answer to the version query, the outputs after it, the proplist, the rows, the lines sent after it
+     * @return iterable<string, array{string, string, list<string>, list<string>, list<array<string, string>>,
+     *         list<string>}> the answer to the version query, the menu, the outputs after it, the proplist, the rows,
+     *         the lines sent after it
      */
     public static function unknownColumns(): iterable
     {
-        $json = static fn (string $proplist): string => ':onerror e in={ :local r; :onerror p in={ :set r '
-            . '[/ip/firewall/address-list/print as-value proplist=' . $proplist . '] } do={ :if ($p ~ '
-            . '"^bad parameter proplist") do={ :set r [/ip/firewall/address-list/print as-value] } else={ :error $p '
+        $json = static fn (string $menu, string $proplist): string => ':onerror e in={ :local r; :onerror p in={ '
+            . ':set r [' . $menu . '/print as-value proplist=' . $proplist . '] } do={ :if ($p ~ '
+            . '"^bad parameter proplist") do={ :set r [' . $menu . '/print as-value] } else={ :error $p '
             . '} }; :put [:serialize to=json options=json.no-string-conversion $r] } do={ :put ("probe " . $e) }';
-        $jsonPlain = ':onerror e in={ :put [:serialize to=json options=json.no-string-conversion '
-            . '[/ip/firewall/address-list/print as-value]] } do={ :put ("probe " . $e) }';
+        $jsonPlain = static fn (string $menu): string => ':onerror e in={ :put [:serialize to=json '
+            . 'options=json.no-string-conversion [' . $menu . '/print as-value]] } do={ :put ("probe " . $e) }';
         $jsonRefusal = "probe input does not match any value of value-name (:error; line 1)\r\n";
         $jsonRows = ConsoleFixture::load('7.17.2-sl-w-json-not-str-true');
         $jsonAddresses = ['10.8.0.1', '10.8.0.3', '10.8.0.4', '10.8.0.5'];
-        $text = static fn (string $proplist): string => ':local r [/ip firewall address-list print as-value'
+        $text = static fn (string $menu, string $proplist): string => ':local r [/'
+            . strtr(substr($menu, 1), '/', ' ') . ' print as-value'
             . ($proplist === '' ? '' : ' proplist=' . $proplist) . ']; ' . CliCompilerTest::SER3;
         $textRows = ConsoleFixture::load('7.1-ser3-addresslist');
         $textAddresses = array_map(static fn (int $n): string => '10.0.0.' . $n, range(1, 7));
         $running = static fn (string $address): array => ['address' => $address, 'running' => 'false'];
         $only = static fn (string $address): array => ['address' => $address];
+        $list = '/ip/firewall/address-list';
         yield 'JSON path, a flag the menu does not have' => [
             '7.17.2 (stable)',
+            $list,
             [$jsonRefusal, $jsonRows, "\r\n"],
             ['address', 'running'],
             array_map($running, $jsonAddresses),
-            [$json('address,running'), $jsonPlain, self::FIND_RUNNING],
+            [$json($list, 'address,running'), $jsonPlain($list), self::FIND_RUNNING],
         ];
         yield 'JSON path, another column the menu does not have' => [
             '7.17.2 (stable)',
+            $list,
             [$jsonRefusal, $jsonRows],
             ['address', 'nosuchcol'],
             array_map($only, $jsonAddresses),
-            [$json('address,nosuchcol'), $jsonPlain],
+            [$json($list, 'address,nosuchcol'), $jsonPlain($list)],
         ];
         yield 'text path, a flag the menu does not have' => [
             '7.1 (stable)',
+            $list,
             ["input does not match any value of value-name\n", $textRows, "\r\n"],
             ['address', 'running'],
             array_map($running, $textAddresses),
-            [$text('address,running'), $text(''), self::FIND_RUNNING],
+            [$text($list, 'address,running'), $text($list, ''), self::FIND_RUNNING],
         ];
         // [N] the text inside `:local r [...]` is unmeasured; a suffix like the other console errors carry
         yield 'text path, another column the menu does not have, the reason with a position' => [
             '7.16.2 (stable)',
+            $list,
             ["input does not match any value of value-name (line 1 column 61)\n", $textRows],
             ['address', 'nosuchcol'],
             array_map($only, $textAddresses),
-            [$text('address,nosuchcol'), $text('')],
+            [$text($list, 'address,nosuchcol'), $text($list, '')],
+        ];
+        // the refusals as measured for these very lines (fd-ssh-report.md); the plain print is the 6.49.23 fixture
+        // (the SER3 form is ours, the same on every version), hence its version
+        yield 'text path, a singleton menu (Client::version())' => [
+            '7.16.2 (stable)',
+            '/system/resource',
+            ["expected end of command (line 1 column 43)\n", ConsoleFixture::load('6.49.23-ser3-resource')],
+            ['version'],
+            [['version' => '6.49.23 (stable)']],
+            [$text('/system/resource', 'version'), $text('/system/resource', '')],
+        ];
+        yield 'text path, a singleton menu, several columns' => [
+            '7.12.2 (stable)',
+            '/ip/dns',
+            ["expected end of command (line 1 column 34)\n", ConsoleFixture::load('7.24.5-d5-ser3-dns')],
+            ['allow-remote-requests', 'dynamic-servers', 'servers'],
+            [[
+                'allow-remote-requests' => 'false',
+                'dynamic-servers' => '10.0.2.3',
+                'servers' => '2001:db8::1,10.0.0.1',
+            ]],
+            [
+                $text('/ip/dns', 'allow-remote-requests,dynamic-servers,servers'),
+                $text('/ip/dns', ''),
+            ],
+        ];
+        // no JSON fixture of /system/resource: the values of `resource-plain` (fd-ssh-probe-7.17.2.txt) in the form
+        // of a measured singleton object (CliCompilerTest, /system/clock)
+        yield 'JSON path, a singleton menu (Client::version())' => [
+            '7.17.2 (stable)',
+            '/system/resource',
+            [
+                "expected end of command (line 1 column 83)\n",
+                '{"architecture-name":"x86_64","board-name":"CHR QEMU Standard PC (i440FX + PIIX, 1996)",'
+                    . '"cpu-count":2,"version":"7.17.2 (stable)"}' . "\r\n",
+            ],
+            ['version'],
+            [['version' => '7.17.2 (stable)']],
+            [$json('/system/resource', 'version'), $jsonPlain('/system/resource')],
         ];
     }
 
@@ -416,8 +464,9 @@ final class SshTransportTest extends TestCase
      * @param list<string> $lines
      */
     #[DataProvider('unknownColumns')]
-    public function testUnknownColumnIsPrintedAgainWithoutProplist(
+    public function testRefusedProplistIsPrintedAgainWithoutIt(
         string $version,
+        string $menu,
         array $outputs,
         array $proplist,
         array $rows,
@@ -425,9 +474,7 @@ final class SshTransportTest extends TestCase
     ): void {
         $ssh = new FakeSsh([$version . "\r\n", ...$outputs]);
 
-        $result = self::transport($ssh)->execute(
-            new Command('/ip/firewall/address-list', 'print', [], null, $proplist),
-        );
+        $result = self::transport($ssh)->execute(new Command($menu, 'print', [], null, $proplist));
 
         self::assertSame($rows, array_map(static function (array $row): array {
             ksort($row);
@@ -438,7 +485,8 @@ final class SshTransportTest extends TestCase
     }
 
     /**
-     * M1: the second print is only for the refusal of an unknown column, only where a proplist was sent, and once.
+     * M1: the second print is only for a refusal of the proplist (an unknown column, a proplist on a singleton menu),
+     * only where a proplist was sent, and once.
      *
      * @return iterable<string, array{string, list<string>, list<string>}>
      *         the answer to the version query, the outputs after it, the lines sent after it
@@ -463,7 +511,7 @@ final class SshTransportTest extends TestCase
         ];
         yield 'text path, another refusal' => [
             '7.1 (stable)',
-            ["expected end of command (line 1 column 39)\n"],
+            ["syntax error (line 1 column 39)\n"],
             [$text],
         ];
         yield 'JSON path, the second print refused the same way' => [
@@ -480,6 +528,11 @@ final class SshTransportTest extends TestCase
         yield 'text path below 7.1' => [
             '6.49.23 (stable)',
             [$textRefusal],
+            [$textPlain],
+        ];
+        yield 'text path below 7.1, the refusal a proplist on a singleton menu gets' => [
+            '6.49.23 (stable)',
+            ["expected end of command (line 1 column 39)\n"],
             [$textPlain],
         ];
     }

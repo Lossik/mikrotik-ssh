@@ -30,7 +30,8 @@ final class FileTransfer
     }
 
     /**
-     * Opens the connection and logs in; the password is always sent, an empty one too.
+     * Opens the connection and logs in; the password is always sent, an empty one too. phpseclib tries the `none`
+     * method first, so an account with an empty password logs in whatever password is given.
      *
      * @throws TimeoutException the SSH banner, handshake or login did not finish within connectTimeout
      * @throws ConnectionException the device is unreachable or closed the connection
