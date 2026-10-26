@@ -49,11 +49,9 @@ final class FileLiveTest extends LiveTestCase
         $files = $this->files();
 
         $files->upload($source, $remote);
-        $router = $this->router();
-        $stored = $router->rows('/file/print', ['?name=' . $remote, '=.proplist=name,size']);
-        $router->close();
         $written = $files->download($remote, $copy);
         $returned = $files->download($remote);
+        $stored = $this->storedFile($remote, (string) strlen($content));
 
         self::assertSame([['name' => $remote, 'size' => (string) strlen($content)]], $stored);
         self::assertTrue($written);
@@ -90,6 +88,31 @@ final class FileLiveTest extends LiveTestCase
             self::fail('ConnectionException expected');
         } catch (ConnectionException) {
             self::assertFalse($files->isOpen());
+        }
+    }
+
+    /**
+     * RouterOS 7.16.2 and 7.17.2 refresh the `/file` menu asynchronously after an SFTP upload (~100-500 ms on TCG,
+     * while SFTP `download` and `stat` see the file at 0 ms; probe fd-ssh-probe-7.16.2.txt).
+     *
+     * @return list<array<string, string>>
+     */
+    private function storedFile(string $remote, string $size): array
+    {
+        $router = $this->router();
+        try {
+            $stored = [];
+            for ($attempt = 0; $attempt < 20; $attempt++) {
+                $stored = $router->rows('/file/print', ['?name=' . $remote, '=.proplist=name,size']);
+                if (($stored[0]['size'] ?? null) === $size) {
+                    return $stored;
+                }
+                usleep(100_000);
+            }
+
+            return $stored;
+        } finally {
+            $router->close();
         }
     }
 

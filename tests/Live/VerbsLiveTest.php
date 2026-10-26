@@ -6,15 +6,19 @@ namespace Lossik\Mikrotik\Ssh\Tests\Live;
 
 use Lossik\DeviceCommunication\Command;
 use Lossik\DeviceCommunication\Query;
+use Lossik\DeviceCommunication\TrapException;
 use PHPUnit\Framework\Attributes\Group;
-use PHPUnit\Framework\Attributes\Medium;
+use PHPUnit\Framework\Attributes\Large;
 
 /**
  * add, set, enable, disable and remove through the console (plan L12, A7, FAQ-5b): the ID of a new item, and verbs
  * that print nothing when they succeed (what they print otherwise is a TrapException, see ErrorsLiveTest).
+ *
+ * Large: testVerbsThatSucceedPrintNothing took 9.85 s on RouterOS 6.34 (`fd-ssh-6.34.xml`, 9.30 s in
+ * `fd-ssh-6.34-run1.xml`), against the 10 s of a medium test.
  */
 #[Group('live')]
-#[Medium]
+#[Large]
 final class VerbsLiveTest extends LiveTestCase
 {
     private const MENU = '/ip/firewall/address-list';
@@ -88,6 +92,31 @@ final class VerbsLiveTest extends LiveTestCase
             self::assertSame([], $result->rows, $command->verb);
             self::assertNull($result->ret, $command->verb);
         }
+    }
+
+    /**
+     * OL13 (plan §3.1): `set` with several IDs (`*1,*FFFF`) is not atomic on the console, just as on the API - the
+     * valid item before the unknown one is changed and the command throws a TrapException ("no such item").
+     */
+    public function testSetOfValidAndUnknownIdChangesTheValidOneAndThrowsATrap(): void
+    {
+        $transport = $this->transport();
+        $id = $transport->execute(
+            new Command(self::MENU, 'add', ['list' => self::LIST, 'address' => '10.97.1.5', 'comment' => 'before']),
+        )->ret;
+        self::assertNotNull($id);
+
+        try {
+            $transport->execute(
+                new Command(self::MENU, 'set', ['.id' => $id . ',*FFFF', 'comment' => 'after']),
+            );
+            self::fail('TrapException expected');
+        } catch (TrapException $e) {
+            self::assertStringContainsString('no such item', $e->getMessage());
+        }
+
+        self::assertTrue($transport->isOpen());
+        self::assertSame([$id => 'after'], $this->column('comment'));
     }
 
     /**

@@ -8,6 +8,7 @@ use Lossik\DeviceCommunication\Client;
 use Lossik\Mikrotik\Ssh\FileTransfer;
 use Lossik\Mikrotik\Ssh\SshOptions;
 use Lossik\Mikrotik\Ssh\SshTransport;
+use phpseclib3\Net\SSH2;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -22,7 +23,7 @@ abstract class LiveTestCase extends TestCase
 
     /**
      * The address list of the items whose comment is the value under test: they cannot carry the tag, so they are
-     * found by the list.
+     * found by the list (also the 300 rows of PrintManyRowsLiveTest).
      */
     protected const LIST = 'lossik-live-list';
 
@@ -43,6 +44,7 @@ abstract class LiveTestCase extends TestCase
         '/ppp/secret',
         '/ip/dhcp-server/lease',
         '/ipv6/dhcp-server/binding',
+        '/ipv6/pool',
     ];
 
     /**
@@ -123,6 +125,29 @@ abstract class LiveTestCase extends TestCase
     protected function router(): Router
     {
         return Router::connect($this->env);
+    }
+
+    /**
+     * Runs one raw console line on the shared admin SSH session (for bulk fixture setup and cleanup, OL9) and fails
+     * the test with the console output when the line printed anything (the lines it runs print nothing when they
+     * succeed) or ended with an exit status other than 0 (a refused line: 1, `fd-ssh-probe-7.16.2.txt`). The SSH
+     * session is reached by reflection: SshTransport has no raw exec, and a session of its own would cost another
+     * login.
+     */
+    protected function execRaw(string $line): void
+    {
+        $ssh = (new \ReflectionProperty(SshTransport::class, 'ssh'))->getValue($this->transport());
+        self::assertInstanceOf(SSH2::class, $ssh);
+        $output = $ssh->exec($line);
+        $status = $ssh->getExitStatus();
+        if (!is_string($output) || trim($output) !== '' || ($status !== false && $status !== 0)) {
+            self::fail(sprintf(
+                "The console refused %s (exit status %s):\n%s",
+                $line,
+                var_export($status, true),
+                var_export($output, true),
+            ));
+        }
     }
 
     private function removeWhatTheTestLeft(): void

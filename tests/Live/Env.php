@@ -23,6 +23,7 @@ final class Env
         'MIKROTIK_LIVE_PORT_SSH',
         'MIKROTIK_LIVE_USER',
         'MIKROTIK_LIVE_PASS',
+        'MIKROTIK_LIVE_SSH_PATH',
         'CHR_VERSION',
     ];
 
@@ -41,6 +42,7 @@ final class Env
         public readonly int $sshPort,
         public readonly string $user,
         public readonly string $password,
+        public readonly string $sshPath,
         public readonly string $chrVersion,
     ) {
     }
@@ -79,6 +81,7 @@ final class Env
             (int) $values['MIKROTIK_LIVE_PORT_SSH'],
             $values['MIKROTIK_LIVE_USER'],
             $values['MIKROTIK_LIVE_PASS'],
+            $values['MIKROTIK_LIVE_SSH_PATH'],
             $values['CHR_VERSION'],
         );
     }

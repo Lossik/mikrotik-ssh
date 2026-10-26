@@ -23,11 +23,14 @@ final class Router
     {
         require_once __DIR__ . '/../../tools/chr/routeros.php';
 
-        // @phpstan-ignore class.notFound, argument.type
-        $router = new self(\ChrApi::connect($env->host, $env->apiPort, 10.0));
-        $reply = $router->call('/login', ['=name=' . $env->user, '=password=' . $env->password]);
-        if ($reply['trap'] !== null) {
-            throw new \RuntimeException('Login to the API of the router failed: ' . $reply['trap']);
+        // @phpstan-ignore class.notFound
+        $api = \ChrApi::connect($env->host, $env->apiPort, 10.0);
+        $router = new self($api); // @phpstan-ignore argument.type
+        /** @var ?string $trap */
+        $trap = $router->api->login($env->user, $env->password, 10.0); // @phpstan-ignore method.notFound
+        if ($trap !== null) {
+            $router->close();
+            throw new \RuntimeException('Login to the API of the router failed: ' . $trap);
         }
 
         return $router;

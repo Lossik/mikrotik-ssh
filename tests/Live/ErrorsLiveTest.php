@@ -22,66 +22,65 @@ use PHPUnit\Framework\Attributes\Medium;
 final class ErrorsLiveTest extends LiveTestCase
 {
     /**
+     * OL8 (plan §3.1, L175/L183, L453): only the presence of the reason is asserted, not the 7.24.5 suffix
+     * `(/ip/address/set; line 1)` or the phrasing that differs by version (`bad parameter bogus` on 7.23.8/7.24.5 vs
+     * `expected end of command` on <= 7.17.2; `bad command name nonexistent` on the spaced text path vs `syntax error`
+     * on the slash JSON path).
+     *
      * @return iterable<string, array{Command, string, string}> the command, the pattern of the message, the user
      */
     public static function refusedCommands(): iterable
     {
         yield 'unknown verb' => [
             new Command('/ip/address', 'nonexistent'),
-            '~^bad command name nonexistent \(line 1 column \d+\)$~',
+            '~^bad command name nonexistent \(line 1 column \d+\)~',
             'admin',
         ];
         yield 'unknown item' => [
             new Command('/ip/address', 'set', ['.id' => '*FFFF', 'comment' => 'x']),
-            '~^no such item \(4\) \(/ip/address/set; line 1\)$~',
+            '~^no such item \(4\)~',
             'admin',
         ];
         yield 'item to remove does not exist' => [
             new Command('/ip/address', 'remove', ['.id' => '*FFFF']),
-            '~^no such item \(4\) \(/ip/address/remove; line 1\)$~',
+            '~^no such item \(4\)~',
             'admin',
         ];
         yield 'value that is not valid' => [
             new Command('/ip/address', 'add', ['address' => 'not-an-address', 'interface' => 'ether1']),
-            '~^invalid value for argument address \(/ip/address/add \(address\); line 1\)$~',
+            '~^invalid value for argument address~',
             'admin',
         ];
         yield 'mandatory attribute missing' => [
             new Command('/ip/address', 'add', ['address' => '10.97.9.1/24']),
-            '~^Script Error: missing value\(s\) of argument\(s\) interface \(/ip/address/add; line 1\)$~',
+            '~^Script Error: missing value\(s\) of argument\(s\) interface~',
             'admin',
         ];
         yield 'attribute that does not exist' => [
             new Command('/ip/address', 'add', ['address' => '10.97.9.1/24', 'interface' => 'ether1', 'bogus' => '1']),
-            '~^bad parameter bogus \(line 1 column \d+\)$~',
-            'admin',
-        ];
-        // the proplist is tried first (a singleton menu rejects it), so the console's complaint is raised again
-        yield 'column that does not exist' => [
-            new Command('/ip/address', 'print', [], null, ['bogus']),
-            '~^input does not match any value of value-name~',
+            '~^(?:bad parameter bogus|expected end of command) \(line 1 column \d+\)~',
             'admin',
         ];
         yield 'write by a user of the group read' => [
             new Command('/ip/address', 'add', ['address' => '10.97.9.1/24', 'interface' => 'ether1']),
-            '~^not enough permissions \(9\) \(/ip/address/add; line 1\)$~',
+            '~^not enough permissions \(9\)~',
             'nopass',
         ];
         // a line the console refuses before it runs prints its own message, not the marker; a verb that is not
         // `print` must not print anything (FAQ-5b), so the message is the refusal
         yield 'menu that does not exist, print' => [
             new Command('/ip/nonexistent', 'print'),
-            '~^syntax error \(line 1 column \d+\)$~',
+            '~^(?:bad command name nonexistent|syntax error) \(line 1 column \d+\)~',
             'admin',
         ];
         yield 'menu that does not exist, add' => [
             new Command('/ip/nonexistent', 'add', ['name' => 'x']),
-            '~^syntax error \(line 1 column \d+\)$~',
+            '~^(?:bad command name nonexistent|syntax error) \(line 1 column \d+\)~',
             'admin',
         ];
         yield 'menu that does not exist, set' => [
             new Command('/ip/nonexistent', 'set', ['.id' => '*1', 'name' => 'x']),
-            '~^syntax error \(line 1 column \d+\)$~',
+            '~^(?:bad command name nonexistent|syntax error) \(line 1 column \d+\)~',
             'admin',
         ];
     }

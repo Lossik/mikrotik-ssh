@@ -50,10 +50,39 @@ final class MenuLiveTest extends LiveTestCase
     ];
 
     /**
-     * The attributes `add` needs on each menu (RouterOS's own "missing =parent=" and the like, as in the API part of
-     * L14), with a list of two items wherever the menu has a list attribute.
+     * What the console prints only when asked for in the proplist (`actual-interface` of /ip/address, `DHCP`,
+     * `complete` and `published` of /ip/arp, `routes`, `ipv6-routes`, `last-logged-out`, `limit-bytes-in` and
+     * `limit-bytes-out` of /ppp/secret, `address-lists`, `blocked`, `dhcp-option`, `last-seen` and `radius` of
+     * /ip/dhcp-server/lease, `active-server`, `address-lists`, `client-address`, `dhcp-option`, `iaid`, `last-seen`,
+     * `prefix-pool` and `radius` of /ipv6/dhcp-server/binding): on RouterOS 7.1 and newer `compileText()` and
+     * `compile()` send `proplist=` so these attributes must match the API row; on 6.x the console has no `proplist`
+     * parameter ("expected end of command") and therefore omits them (plan R16/D11, L492, L575).
      *
-     * @return iterable<string, array{string, array<string, string>}>
+     * @var array<string, list<string>>
+     */
+    private const WITHOUT_PROPLIST_ON_6X = [
+        '/ip/address' => ['actual-interface'],
+        '/ip/arp' => ['DHCP', 'complete', 'published'],
+        '/ppp/secret' => ['ipv6-routes', 'last-logged-out', 'limit-bytes-in', 'limit-bytes-out', 'routes'],
+        '/ip/dhcp-server/lease' => ['address-lists', 'blocked', 'dhcp-option', 'last-seen', 'radius'],
+        '/ipv6/dhcp-server/binding' => [
+            'active-server', 'address-lists', 'client-address', 'dhcp-option',
+            'iaid', 'last-seen', 'prefix-pool', 'radius',
+        ],
+    ];
+
+    /**
+     * The attributes `add` needs on each menu (RouterOS's own "missing =parent=" and the like, as in the API part of
+     * L14; on 6.34 the console also requires `server=all` on /ipv6/dhcp-server/binding), with a list of two items
+     * wherever the menu has a list attribute. The third element lists items RouterOS demands to exist first (created
+     * over the API with the tag): a binding in /ipv6/dhcp-server/binding needs its `prefix-pool` on 6.x and 7.12.2
+     * ("failure: Missing pool!"; `prefix-length=128` for a /128 binding on 6.34).
+     *
+     * @return iterable<string, array{
+     *     0: string,
+     *     1: array<string, string>,
+     *     2?: list<array{string, array<string, string>}>,
+     * }>
      */
     public static function menus(): iterable
     {
@@ -84,7 +113,14 @@ final class MenuLiveTest extends LiveTestCase
         ];
         yield '/ipv6/dhcp-server/binding' => [
             '/ipv6/dhcp-server/binding',
-            ['address' => '2001:db8::1/128', 'duid' => '0x0001', 'iaid' => '1'],
+            [
+                'address' => '2001:db8:1::1/128',
+                'duid' => '0x0001',
+                'iaid' => '1',
+                'prefix-pool' => 'lossik-live-pool',
+                'server' => 'all',
+            ],
+            [['/ipv6/pool', ['name' => 'lossik-live-pool', 'prefix' => '2001:db8:1::/120', 'prefix-length' => '128']]],
         ];
         yield '/ipv6/firewall/address-list' => [
             '/ipv6/firewall/address-list',
@@ -94,13 +130,17 @@ final class MenuLiveTest extends LiveTestCase
 
     /**
      * @param array<string, string> $attributes
+     * @param list<array{string, array<string, string>}> $requires
      */
     #[DataProvider('menus')]
-    public function testAddPrintUpdateDeleteOnTheMenu(string $path, array $attributes): void
+    public function testAddPrintUpdateDeleteOnTheMenu(string $path, array $attributes, array $requires = []): void
     {
         $menu = $this->client()->menu($path);
         $mine = Query::where('comment', self::TAG);
         $router = $this->router();
+        foreach ($requires as [$requiredMenu, $requiredAttributes]) {
+            $router->add($requiredMenu, $requiredAttributes + ['comment' => self::TAG]);
+        }
 
         $id = $menu->add($attributes + ['comment' => self::TAG]);
         $byApi = $router->rows($path . '/print', ['?comment=' . self::TAG]);
@@ -116,7 +156,11 @@ final class MenuLiveTest extends LiveTestCase
         self::assertCount(1, $byApi);
         self::assertSame($id, $byApi[0]['.id']);
         // the columns the caller names come out as the API gives them, except what the console cannot print that way
-        $known = array_flip(self::DIFFERENT[$path] ?? []);
+        $differences = self::DIFFERENT[$path] ?? [];
+        if (version_compare($this->env->chrVersion, '7.1', '<')) {
+            $differences = [...$differences, ...(self::WITHOUT_PROPLIST_ON_6X[$path] ?? [])];
+        }
+        $known = array_flip($differences);
         $expected = self::sorted(array_diff_key($byApi[0], $known));
         self::assertCount(1, $named);
         self::assertSame($expected, self::sorted(array_diff_key($named[0], $known)));
@@ -128,6 +172,31 @@ final class MenuLiveTest extends LiveTestCase
         self::assertSame(['true'], array_column($disabledByApi, 'disabled'));
         self::assertSame(1, $deleted);
         self::assertSame([], $leftByApi);
+    }
+
+    /**
+     * M1 (brana-otazky-m1.md (b)): a print whose proplist names an unknown column or a flag the menu does not have
+     * (`running` on /ip/firewall/address-list) repeats without the proplist on 7.1+ and reduces the columns on the
+     * client, so the row equals the API row (and the missing flag gets `'false'`) on every version.
+     */
+    public function testPrintWithAnUnknownColumnAndAFlagTheMenuDoesNotHave(): void
+    {
+        $path = '/ip/firewall/address-list';
+        $menu = $this->client()->menu($path);
+        $mine = Query::where('comment', self::TAG);
+        $router = $this->router();
+        $router->add($path, ['list' => 'lossik-live-menu', 'address' => '10.96.0.2', 'comment' => self::TAG]);
+        $byApiColumn = $router->rows($path . '/print', ['?comment=' . self::TAG, '=.proplist=address,bogus']);
+        $byApiFlag = $router->rows($path . '/print', ['?comment=' . self::TAG, '=.proplist=address,running']);
+        $router->close();
+
+        $withColumn = $menu->print($mine, ['address', 'bogus']);
+        $withFlag = $menu->print($mine, ['address', 'running']);
+
+        self::assertSame([['address' => '10.96.0.2']], $byApiColumn);
+        self::assertSame($byApiColumn, $withColumn);
+        self::assertSame([['address' => '10.96.0.2']], $byApiFlag);
+        self::assertSame([$byApiFlag[0] + ['running' => 'false']], $withFlag);
     }
 
     public function testDhcpServerCanBePrinted(): void
