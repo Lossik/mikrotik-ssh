@@ -1,12 +1,34 @@
 {
 	"name": "lossik/mikrotik-ssh",
+	"description": "MikroTik RouterOS client over SSH and SFTP (phpseclib 2)",
+	"type": "library",
+	"license": "MIT",
 	"autoload": {
 		"psr-4": {
 			"Lossik\\Device\\Mikrotik\\": "src/"
 		}
 	},
+	"autoload-dev": {
+		"psr-4": {
+			"Lossik\\Device\\Mikrotik\\Tests\\": "tests/"
+		}
+	},
 	"require": {
-		"lossik/device-communication": "~2.0",
-		"phpseclib/phpseclib": "~2.0"
+		"php": "^8.2",
+		"lossik/device-communication": "^2.0.1",
+		"phpseclib/phpseclib": "^2.0.55"
+	},
+	"require-dev": {
+		"phpunit/phpunit": "^11.5"
+	},
+	"scripts": {
+		"test": "phpunit"
+	},
+	"config": {
+		"audit": {
+			"ignore": {
+				"CVE-2026-84308": "Not applicable to this package (GHSA-q97c-8qh3-fpc6): exploitation requires a reused X25519 private key, and per the advisory phpseclib's own SSH path generates a fresh scalar per exchange and is not affected. This package uses phpseclib only for SSH and SFTP."
+			}
+		}
 	}
 }
