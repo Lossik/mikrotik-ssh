@@ -43,7 +43,9 @@ One row per version: `<version> <channel> <sha256> <ssh-path> <install> <sha-sou
 | `install` | `image` (boot the official image) or `upgrade:<base>` (boot the image of the `<base>` row and upgrade it with the NPK) |
 | `sha-source` | `official` (the server publishes `<file>.sha256`) or `computed` (it does not — HTTP 404 — and the hash was computed locally; a changed file on the server is then reported as a SHA256 mismatch) |
 
-`channel` must be one of the three values, `sha256` 64 lowercase hex digits and a version may be listed only once; the row of a version that breaks this fails the run before anything starts. Lines starting with `#` and a trailing `# …` on a row are comments; any other extra column is an error. An `upgrade:`
+`channel` must be one of the three values, `sha256` 64 lowercase hex digits and a version may be listed only once;
+the row of a version that breaks this fails the run before anything starts. Lines starting with `#` and a trailing
+`# …` on a row are comments; any other extra column is an error. An `upgrade:`
 row needs `sha-source=official` and a `<base>` row with `install=image`.
 
 **RouterOS 6.49.23 is tested as an installation upgraded from 6.49.20.** Fresh official CHR images 6.49.21 and newer

@@ -201,6 +201,15 @@ live tests | timeout 600 vendor/bin/phpunit --group live --exclude-group live-js
 EOF
 )
 
+# Unpinned version (main() writes a temp row, always "stable", and sets CHR_TEMP_VERSIONS): the row only guesses the channel,
+# so the plan must not hand it to smoke.php and drops a CHR_CHANNEL inherited from the environment.
+GOLDEN_UNPINNED_ENV=$(cat <<'EOF'
+env | export MIKROTIK_LIVE_SSH_PATH=json
+env | unset CHR_CHANNEL
+env | export CHR_LIVE_TIMEOUT=300
+EOF
+)
+
 # execute_plan of the upgrade row with stubbed commands; the first smoke fails, provision + smoke repeat once.
 GOLDEN_TRACE_UPGRADE=$(cat <<'EOF'
 step: install
@@ -256,7 +265,7 @@ EOF
 
 test_oh5() {
 	echo "--- OH5: planned steps (groups, timeout, install, smoke gate) and their execution ---"
-	local out rc tmp_dir
+	local out rc tmp_dir tmp_file
 	unset CHR_LIVE_TIMEOUT || true
 
 	out=$(plan_live_run "7.24.5" "$VERSIONS_FILE" && print_plan)
@@ -269,6 +278,14 @@ test_oh5() {
 	# The environment variable CHR_LIVE_TIMEOUT overrides the default
 	out=$(CHR_LIVE_TIMEOUT=1234 plan_live_run "7.24.5" "$VERSIONS_FILE" && print_plan)
 	assert_golden "OH5 CHR_LIVE_TIMEOUT=1234" "${GOLDEN_JSON_IMAGE//300/1234}" "$out"
+
+	# An unpinned version has no trustworthy channel: the plan unsets CHR_CHANNEL (smoke.php then compares only the version)
+	tmp_file=$(mktemp)
+	printf '%s stable %s json image official
+' 7.99.1 "$SHA" >"$tmp_file"
+	out=$(CHR_TEMP_VERSIONS="$tmp_file" plan_live_run "7.99.1" "$tmp_file" && print_plan | head -3)
+	rm -f "$tmp_file"
+	assert_golden "OH5 unpinned version (CHR_TEMP_VERSIONS)" "$GOLDEN_UNPINNED_ENV" "$out"
 
 	# Without a version or with a broken CHR_LIVE_TIMEOUT the run fails instead of planning
 	if (plan_live_run "" "$VERSIONS_FILE") >/dev/null 2>&1; then
