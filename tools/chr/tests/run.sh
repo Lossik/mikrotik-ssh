@@ -1,5 +1,6 @@
 #!/bin/bash
-# Harness tests without a router: OH1-OH5 of plan §7.4, OH6 (smoke.php --ssh-login), OH7 (upgrade.php) and OH8 (ipv6 package in provision.php).
+# Harness tests without a router: OH1-OH5 of plan §7.4, OH6 (smoke.php --ssh-login), OH7 (upgrade.php), OH8 (ipv6 package in provision.php)
+# and OH9 (smoke.php version and channel).
 # Called as the first line of the chr job script in CI.
 set -euo pipefail
 
@@ -63,6 +64,16 @@ test_oh1() {
 	assert_row_rejected "upgrade without a base row" bad6 "bad6 stable $SHA text upgrade:0.1 official"
 	assert_row_rejected "upgrade whose base row is not an image" bad7 "bad7 stable $SHA text upgrade:base7 official
 base7 stable $SHA text upgrade:bad7 official"
+	assert_row_rejected "unknown channel" bad9 "bad9 stabel $SHA json image official"
+	assert_row_rejected "channel in upper case" bad10 "bad10 Stable $SHA json image official"
+	assert_row_rejected "sha256 of 63 digits" bad11 "bad11 stable ${SHA:1} json image official"
+	assert_row_rejected "sha256 of 65 digits" bad12 "bad12 stable ${SHA}0 json image official"
+	assert_row_rejected "sha256 with a non-hex digit" bad13 "bad13 stable ${SHA/f/g} json image official"
+	assert_row_rejected "sha256 in upper case" bad14 "bad14 stable ${SHA^^} json image official"
+	assert_row_rejected "version listed twice" bad15 "bad15 stable $SHA json image official
+bad15 stable $SHA json image official"
+	assert_row_rejected "base row with an invalid channel" bad16 "bad16 stable $SHA text upgrade:base16 official
+base16 foo $SHA text image computed"
 	assert_row_rejected "upgrade with sha-source=computed" bad8 "bad8 stable $SHA text upgrade:base8 computed
 base8 stable $SHA text image computed"
 
@@ -125,6 +136,7 @@ test_oh4() {
 
 GOLDEN_JSON_IMAGE=$(cat <<'EOF'
 env | export MIKROTIK_LIVE_SSH_PATH=json
+env | export CHR_CHANNEL=stable
 env | export CHR_LIVE_TIMEOUT=300
 env | export MIKROTIK_LIVE_HOST=127.0.0.1
 env | export MIKROTIK_LIVE_PORT_API=18728
@@ -145,6 +157,7 @@ EOF
 
 GOLDEN_TEXT_IMAGE=$(cat <<'EOF'
 env | export MIKROTIK_LIVE_SSH_PATH=text
+env | export CHR_CHANNEL=long-term
 env | export CHR_LIVE_TIMEOUT=600
 env | export MIKROTIK_LIVE_HOST=127.0.0.1
 env | export MIKROTIK_LIVE_PORT_API=18728
@@ -165,6 +178,7 @@ EOF
 
 GOLDEN_TEXT_UPGRADE=$(cat <<'EOF'
 env | export MIKROTIK_LIVE_SSH_PATH=text
+env | export CHR_CHANNEL=stable
 env | export CHR_LIVE_TIMEOUT=600
 env | export MIKROTIK_LIVE_HOST=127.0.0.1
 env | export MIKROTIK_LIVE_PORT_API=18728
@@ -216,7 +230,7 @@ step: smoke ssh-login
 php $DIR/smoke.php --ssh-login
 step: live tests
 timeout 600 vendor/bin/phpunit --group live --exclude-group live-json --fail-on-empty-test-suite --filter Foo
-env: MIKROTIK_LIVE_SSH_PATH=text CHR_LIVE_TIMEOUT=600 MIKROTIK_LIVE_HOST=127.0.0.1 MIKROTIK_LIVE_PORT_API=18728 MIKROTIK_LIVE_PORT_TLS=18729 MIKROTIK_LIVE_PORT_SSH=18722 MIKROTIK_LIVE_USER=admin MIKROTIK_LIVE_PASS=pw
+env: MIKROTIK_LIVE_SSH_PATH=text CHR_CHANNEL=stable CHR_LIVE_TIMEOUT=600 MIKROTIK_LIVE_HOST=127.0.0.1 MIKROTIK_LIVE_PORT_API=18728 MIKROTIK_LIVE_PORT_TLS=18729 MIKROTIK_LIVE_PORT_SSH=18722 MIKROTIK_LIVE_USER=admin MIKROTIK_LIVE_PASS=pw
 EOF
 )
 
@@ -330,8 +344,13 @@ test_oh8() {
 	php "$TESTS_DIR/oh8.php"
 }
 
+test_oh9() {
+	echo "--- OH9: smoke.php compares the version and the channel the router reports ---"
+	php "$TESTS_DIR/oh9.php"
+}
+
 main() {
-	echo "=== Running harness tests OH1-OH8 ==="
+	echo "=== Running harness tests OH1-OH9 ==="
 	test_oh1
 	test_oh2
 	test_oh3
@@ -340,7 +359,8 @@ main() {
 	test_oh6
 	test_oh7
 	test_oh8
-	echo "=== All harness tests OH1-OH8 PASSED ==="
+	test_oh9
+	echo "=== All harness tests OH1-OH9 PASSED ==="
 }
 
 main "$@"
